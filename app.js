@@ -106,7 +106,7 @@ function defaultData() {
     makeEventRaw(worker, MATRIZ_INICIAL[6], 1, past.toISOString().slice(0, 10), "ATIVO", "Jorge"),
     makeEventRaw(worker, MATRIZ_INICIAL[12], 2, soon.toISOString().slice(0, 10), "ATIVO", "Técnico Sul")
   ];
-  return { matriz: MATRIZ_INICIAL, trabalhadores: [worker], eventos: seedEvents, stocks, budget: { limit: 0, items: {} }, operadores: [] };
+  return { matriz: MATRIZ_INICIAL, trabalhadores: [worker], eventos: seedEvents, stocks, budget: { limit: 0, items: {} }, operadores: [], warehouses: WAREHOUSES.slice() };
 }
 
 async function loadFromFirestore() {
@@ -196,12 +196,26 @@ function ensureDataShape() {
   if (!state.data.eventos) state.data.eventos = [];
   if (!state.data.latestSignatures) state.data.latestSignatures = {};
   if (!state.data.stocks) state.data.stocks = {};
-  WAREHOUSES.forEach(w => {
+  if (!Array.isArray(state.data.warehouses) || !state.data.warehouses.length) {
+    state.data.warehouses = WAREHOUSES.slice();
+  }
+  state.data.warehouses.forEach(w => {
     if (!state.data.stocks[w]) state.data.stocks[w] = {};
     state.data.matriz.forEach(epi => {
       state.data.stocks[w][epi.nome] = normalizeStockRecord(state.data.stocks[w][epi.nome]);
     });
   });
+  if (!state.data.warehouses.includes(state.filters.stockWarehouse)) {
+    state.filters.stockWarehouse = state.data.warehouses[0] || "";
+  }
+}
+
+function isProtectedWarehouse(name) {
+  return USERS.some(u => u.armazem === name);
+}
+
+function warehouseList() {
+  return state.data.warehouses || WAREHOUSES;
 }
 
 async function migrateLegacySignatures() {
@@ -457,6 +471,17 @@ function render() {
   if (!isSuper() && !state.operadorAtual) return renderOperadorPicker();
   if (state.selectedWorkerId) return renderWorkerDetail();
   const views = { home: renderHome, people: renderPeople, stock: renderStock, alerts: renderAlerts, audit: renderAudit, budget: renderBudget };
+
+  // Guarda o foco/posição do cursor e o scroll antes de substituir o HTML.
+  // Sem isto, escrever num campo de pesquisa (que chama render() a cada
+  // tecla) perde o foco a cada carácter e obriga a clicar de novo no input.
+  const active = document.activeElement;
+  let refocus = null;
+  if (active && appEl.contains(active) && active.dataset && active.dataset.filter) {
+    refocus = { filterKey: active.dataset.filter, start: active.selectionStart, end: active.selectionEnd };
+  }
+  const scrollY = window.scrollY;
+
   appEl.innerHTML = `
     <main>
       <div class="app-top">
@@ -473,6 +498,17 @@ function render() {
     </main>
     ${bottomNav()}
   `;
+
+  if (refocus) {
+    const el = appEl.querySelector(`[data-filter="${refocus.filterKey}"]`);
+    if (el) {
+      el.focus();
+      if (typeof refocus.start === "number" && el.setSelectionRange) {
+        try { el.setSelectionRange(refocus.start, refocus.end); } catch { /* campo não suporta seleção (ex: select) */ }
+      }
+    }
+    window.scrollTo(0, scrollY);
+  }
 }
 
 function pageTitle() {
@@ -580,6 +616,7 @@ function renderHome() {
         <button class="quick-card" data-page="people"><strong>Gerir Pessoal</strong><span class="meta">Fichas e entregas</span></button>
         <button class="quick-card" data-page="stock"><strong>Armazém</strong><span class="meta">Stocks e entradas</span></button>
         ${isSuper() ? `<button class="quick-card" data-modal="operadores"><strong>Operadores</strong><span class="meta">Gerir lista de nomes</span></button>` : ""}
+        ${isSuper() ? `<button class="quick-card" data-modal="warehouses"><strong>Armazéns</strong><span class="meta">Criar, renomear e transferir stock</span></button>` : ""}
         ${isSuper() && state.data.latestSignatures && Object.keys(state.data.latestSignatures).length ? `<button class="quick-card" data-action="migrateSignatures"><strong>Migrar Assinaturas</strong><span class="meta">${Object.keys(state.data.latestSignatures).length} por migrar</span></button>` : ""}
         ${isSuper() ? `<button class="quick-card" data-action="archiveOldEvents"><strong>Arquivar Eventos Antigos</strong><span class="meta">Liberta espaço no documento principal</span></button>` : ""}
       </div>
@@ -686,7 +723,7 @@ function renderStockMatrix() {
           <thead><tr><th>Artigo EPI</th><th>Norte</th><th>Sul</th><th>Algarve</th><th>Total</th></tr></thead>
           <tbody>
             ${state.data.matriz.map(epi => {
-              const nums = WAREHOUSES.map(w => stockTotal(w, epi.nome));
+              const nums = warehouseList().map(w => stockTotal(w, epi.nome));
               return `<tr><td>${html(epi.nome)}</td>${nums.map(n => `<td class="mono">${n}</td>`).join("")}<td class="mono">${nums.reduce((a,b) => a + b, 0)}</td></tr>`;
             }).join("")}
           </tbody>
@@ -697,7 +734,7 @@ function renderStockMatrix() {
 }
 
 function renderPeople() {
-  const delegacoes = isSuper() ? ["TODAS", ...WAREHOUSES] : [state.user.armazem];
+  const delegacoes = isSuper() ? ["TODAS", ...warehouseList()] : [state.user.armazem];
   const q = state.filters.workerSearch.toLowerCase();
   const workers = scopedWorkers().filter(w =>
     (state.filters.delegacao === "TODAS" || w.delegacao === state.filters.delegacao) &&
@@ -800,7 +837,7 @@ function renderStock() {
     <section class="section">
       <div class="field-row">
         <select class="select" data-filter="stockWarehouse" ${isSuper() ? "" : "disabled"}>
-          ${WAREHOUSES.map(w => `<option ${warehouse === w ? "selected" : ""}>${w}</option>`).join("")}
+          ${warehouseList().map(w => `<option ${warehouse === w ? "selected" : ""}>${w}</option>`).join("")}
         </select>
       </div>
       <div class="section-head">
@@ -893,7 +930,7 @@ function auditSummary(rows) {
   const validos = ativos.filter(r => r.status === "normal");
   const workersComEntrega = new Set(rows.map(r => r.idTrab));
   const semNenhumaEntrega = workers.filter(w => !workersComEntrega.has(w.id));
-  const porDelegacao = WAREHOUSES.map(d => {
+  const porDelegacao = warehouseList().map(d => {
     const dAtivos = ativos.filter(r => r.worker?.delegacao === d);
     return {
       delegacao: d,
@@ -910,7 +947,7 @@ function renderAudit() {
   const allRows = auditRows();
   const s = auditSummary(allRows);
   const conformidade = s.ativos.length ? Math.round((s.validos.length / s.ativos.length) * 100) : 100;
-  const delegacoesFiltro = isSuper() ? ["TODAS", ...WAREHOUSES] : [state.user.armazem];
+  const delegacoesFiltro = isSuper() ? ["TODAS", ...warehouseList()] : [state.user.armazem];
   const estados = ["TODOS", "expired", "warning", "normal", "semAssinatura", "baixa"];
   const estadoLabel = { TODOS: "Todos os estados", expired: "Expirados", warning: "A expirar", normal: "Válidos", semAssinatura: "Sem assinatura", baixa: "Substituídas (baixa)" };
   const rows = allRows.filter(r => {
@@ -1055,7 +1092,7 @@ function openModal(title, body) {
 function closeModal() { modalRoot.innerHTML = ""; }
 
 function workerModal() {
-  const options = isSuper() ? WAREHOUSES : [state.user.armazem];
+  const options = isSuper() ? warehouseList() : [state.user.armazem];
   openModal("Criar Trabalhador", `
     <form data-form="worker">
       <div class="field-row"><input class="input" name="nome" placeholder="Nome completo" required></div>
@@ -1144,7 +1181,7 @@ function operadoresModal() {
         <input class="input" name="nome" placeholder="Nome do operador" required>
         <select class="select" name="armazem">
           <option value="TODAS">Todas as delegações</option>
-          ${WAREHOUSES.map(w => `<option value="${html(w)}">${html(w)}</option>`).join("")}
+          ${warehouseList().map(w => `<option value="${html(w)}">${html(w)}</option>`).join("")}
         </select>
       </div>
       <button class="primary-btn" type="submit">+ Adicionar</button>
@@ -1158,6 +1195,120 @@ function operadoresModal() {
       `).join("") : `<div class="empty">Sem operadores ainda.</div>`}
     </div>
   `);
+}
+
+function warehousesModal() {
+  const list = warehouseList();
+  openModal("Gerir Armazéns", `
+    <div class="section-head" style="margin-bottom:6px"><h2 style="font-size:1rem">Armazéns Existentes</h2></div>
+    <div class="worker-list" id="warehouses-list">
+      ${list.map((w, i) => {
+        const protectedWh = isProtectedWarehouse(w);
+        return `
+        <div data-warehouse-row style="display:flex;gap:8px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:rgba(7,19,29,.92)">
+          <input class="input" style="flex:1" data-warehouse-rename value="${html(w)}" ${protectedWh ? "disabled" : ""}>
+          ${protectedWh
+            ? `<span class="meta" style="white-space:nowrap">fixo (login)</span>`
+            : `<button class="ghost-btn" style="min-height:32px;padding:0 10px;font-size:.82rem" data-action="renameWarehouse" data-index="${i}">Renomear</button>
+               <button class="danger-btn" style="min-height:32px;padding:0 10px;font-size:.82rem" data-action="deleteWarehouse" data-index="${i}">Apagar</button>`}
+        </div>
+      `;}).join("")}
+    </div>
+    <p class="meta" style="margin-top:8px">Armazéns "fixos" estão associados a um login de operador local e não podem ser renomeados/apagados. Só é possível apagar um armazém sem trabalhadores e sem stock.</p>
+    <form data-form="warehouse" style="margin-top:14px">
+      <div class="field-row"><input class="input" name="nome" placeholder="Nome do novo armazém" required></div>
+      <button class="primary-btn" type="submit">+ Adicionar Armazém</button>
+    </form>
+
+    <hr style="border-color:var(--line);margin:18px 0">
+
+    <div class="section-head" style="margin-bottom:6px"><h2 style="font-size:1rem">Transferir Stock entre Armazéns</h2></div>
+    <form data-form="transfer">
+      <div class="field-row two">
+        <select class="select" name="origem">${list.map(w => `<option>${html(w)}</option>`).join("")}</select>
+        <select class="select" name="destino">${list.map((w, i) => `<option ${i === 1 ? "selected" : ""}>${html(w)}</option>`).join("")}</select>
+      </div>
+      <div class="field-row"><select class="select" name="epi">${state.data.matriz.map(e => `<option value="${html(e.nome)}">${html(e.nome)}</option>`).join("")}</select></div>
+      <div class="field-row two">
+        <select class="select" name="tamanho" id="transfer-size"></select>
+        <input class="input" name="qtd" type="number" min="1" value="1" placeholder="Quantidade" required>
+      </div>
+      <div class="info-box" id="transfer-info"></div>
+      <button class="primary-btn" type="submit">↔ Transferir</button>
+    </form>
+  `);
+  updateTransferPreview(document.querySelector('[data-form="transfer"]'));
+}
+
+function transferStock(origem, destino, epiName, tamanho, qtd) {
+  const record = stockRecord(origem, epiName);
+  const key = String(tamanho || "").trim().toUpperCase();
+  const available = key ? Number(record.sizes[key] || 0) : record.loose;
+  if (qtd <= 0 || qtd > available) return false;
+  if (key) record.sizes[key] -= qtd;
+  else record.loose -= qtd;
+  addStock(destino, epiName, qtd, tamanho);
+  return true;
+}
+
+function updateTransferPreview(form) {
+  if (!form) return;
+  const origem = form.origem.value;
+  const epiName = form.epi.value;
+  const sizeSelect = form.tamanho;
+  const currentSize = sizeSelect.value;
+  sizeSelect.innerHTML = deliverySizeOptions(origem, epiName);
+  if ([...sizeSelect.options].some(o => o.value === currentSize)) sizeSelect.value = currentSize;
+  const info = form.querySelector("#transfer-info");
+  if (info) {
+    const total = stockTotal(origem, epiName);
+    info.textContent = `Disponível em ${origem}: ${total} unidade(s) no total.`;
+  }
+}
+
+async function renameWarehouse(target) {
+  const index = Number(target.dataset.index);
+  const oldName = warehouseList()[index];
+  const row = target.closest("[data-warehouse-row]");
+  const input = row?.querySelector("[data-warehouse-rename]");
+  const newName = (input?.value || "").trim();
+  if (isProtectedWarehouse(oldName)) { showToast("Este armazém está associado a um login fixo e não pode ser renomeado."); return; }
+  if (!newName) { showToast("Indique um nome válido."); return; }
+  if (newName === oldName) return;
+  if (warehouseList().some((w, i) => i !== index && w.toLowerCase() === newName.toLowerCase())) {
+    showToast("Já existe um armazém com esse nome."); return;
+  }
+  state.data.warehouses[index] = newName;
+  state.data.stocks[newName] = state.data.stocks[oldName] || {};
+  delete state.data.stocks[oldName];
+  state.data.trabalhadores.forEach(w => { if (w.delegacao === oldName) w.delegacao = newName; });
+  state.data.operadores.forEach(o => { if (o.armazem === oldName) o.armazem = newName; });
+  if (state.filters.delegacao === oldName) state.filters.delegacao = newName;
+  if (state.filters.stockWarehouse === oldName) state.filters.stockWarehouse = newName;
+  await saveAll();
+  warehousesModal();
+  showToast(`Armazém renomeado para "${newName}".`);
+}
+
+async function deleteWarehouse(target) {
+  const index = Number(target.dataset.index);
+  const name = warehouseList()[index];
+  if (isProtectedWarehouse(name)) { showToast("Este armazém está associado a um login fixo e não pode ser apagado."); return; }
+  if (state.data.trabalhadores.some(w => w.delegacao === name)) {
+    showToast(`Existem trabalhadores associados a "${name}". Mude-os de delegação antes de apagar.`); return;
+  }
+  const totalStock = state.data.matriz.reduce((sum, epi) => sum + stockTotal(name, epi.nome), 0);
+  if (totalStock > 0) {
+    showToast(`Ainda há ${totalStock} unidade(s) em stock em "${name}". Transfira o stock antes de apagar.`); return;
+  }
+  if (!confirm(`Apagar o armazém "${name}"? Esta ação não pode ser desfeita.`)) return;
+  state.data.warehouses.splice(index, 1);
+  delete state.data.stocks[name];
+  if (state.filters.delegacao === name) state.filters.delegacao = "TODAS";
+  if (state.filters.stockWarehouse === name) state.filters.stockWarehouse = warehouseList()[0] || "";
+  await saveAll();
+  warehousesModal();
+  showToast(`Armazém "${name}" apagado.`);
 }
 
 function budgetModal() {
@@ -1472,7 +1623,7 @@ document.addEventListener("click", ev => {
   if (workerId) { state.selectedWorkerId = Number(workerId); render(); return; }
 
   const modal = ev.target.closest("[data-modal]")?.dataset.modal;
-  if (modal) { ({ worker: workerModal, delivery: deliveryModal, audit: auditModal, article: articleModal, budget: budgetModal, operadores: operadoresModal })[modal]?.(); return; }
+  if (modal) { ({ worker: workerModal, delivery: deliveryModal, audit: auditModal, article: articleModal, budget: budgetModal, operadores: operadoresModal, warehouses: warehousesModal })[modal]?.(); return; }
 
   const renewAlertId = ev.target.closest("[data-renew-alert]")?.dataset.renewAlert;
   if (renewAlertId) {
@@ -1552,6 +1703,8 @@ function handleAction(action, target = null) {
   if (action === "exportAuditCsv") exportAuditCsv();
   if (action === "exportBudgetCsv") exportBudgetCsv();
   if (action === "archiveOldEvents") archiveOldEvents();
+  if (action === "renameWarehouse") renameWarehouse(target);
+  if (action === "deleteWarehouse") deleteWarehouse(target);
 }
 
 function addDeliveryItem() {
@@ -1568,10 +1721,12 @@ function removeDeliveryItem(target) {
 document.addEventListener("input", ev => {
   const filter = ev.target.dataset.filter;
   if (filter) { state.filters[filter] = ev.target.value; render(); return; }
-  if (ev.target.name === "epi") {
+
+  const form = ev.target.closest("form");
+
+  if (form?.dataset.form === "delivery" && ev.target.name === "epi") {
     const epi = state.data.matriz.find(e => e.nome === ev.target.value);
     const item = ev.target.closest(".delivery-item");
-    const form = ev.target.closest("form");
     const meses = item?.querySelector('[name="meses"]') || form?.meses;
     if (meses) meses.value = epi.meses;
     const info = item?.querySelector(".delivery-info") || document.querySelector("#delivery-info");
@@ -1579,6 +1734,11 @@ document.addEventListener("input", ev => {
     const worker = state.data.trabalhadores.find(w => w.id === state.selectedWorkerId);
     const sizeSelect = item?.querySelector(".delivery-size") || form.querySelector("#delivery-size");
     if (sizeSelect) sizeSelect.innerHTML = deliverySizeOptions(worker?.delegacao, epi.nome);
+    return;
+  }
+
+  if (form?.dataset.form === "transfer" && ["epi", "origem", "destino"].includes(ev.target.name)) {
+    updateTransferPreview(form);
   }
 });
 
@@ -1629,7 +1789,7 @@ document.addEventListener("submit", async ev => {
   if (kind === "article") {
     const epi = { nome: form.nome.value.trim().toUpperCase(), riscos: form.riscos.value.trim(), meses: Number(form.meses.value), preco: Math.max(0, Number(form.preco.value) || 0) };
     state.data.matriz.push(epi);
-    WAREHOUSES.forEach(w => { state.data.stocks[w][epi.nome] = { loose: 0, sizes: {} }; });
+    warehouseList().forEach(w => { state.data.stocks[w][epi.nome] = { loose: 0, sizes: {} }; });
     await saveAll(); closeModal(); render();
   }
   if (kind === "entry") {
@@ -1648,6 +1808,41 @@ document.addEventListener("submit", async ev => {
     });
     state.data.budget = { limit: Number(form.limit.value || 0), items };
     await saveAll(); closeModal(); render();
+  }
+  if (kind === "warehouse") {
+    if (!isSuper()) return;
+    const nome = form.nome.value.trim();
+    if (!nome) return;
+    if (warehouseList().some(w => w.toLowerCase() === nome.toLowerCase())) {
+      showToast("Já existe um armazém com esse nome."); return;
+    }
+    state.data.warehouses.push(nome);
+    state.data.stocks[nome] = {};
+    state.data.matriz.forEach(epi => { state.data.stocks[nome][epi.nome] = { loose: 0, sizes: {} }; });
+    await saveAll();
+    warehousesModal();
+    showToast(`Armazém "${nome}" criado.`);
+  }
+  if (kind === "transfer") {
+    if (!isSuper()) return;
+    const origem = form.origem.value;
+    const destino = form.destino.value;
+    const epiName = form.epi.value;
+    const tamanho = form.tamanho.value;
+    const qtd = Number(form.qtd.value || 0);
+    if (origem === destino) { showToast("Escolha armazéns de origem e destino diferentes."); return; }
+    if (!qtd || qtd <= 0) { showToast("Indique uma quantidade válida."); return; }
+    const record = stockRecord(origem, epiName);
+    const key = String(tamanho || "").trim().toUpperCase();
+    const available = key ? Number(record.sizes[key] || 0) : record.loose;
+    if (qtd > available) {
+      showToast(`Só há ${available} unidade(s) disponível(eis) em ${origem}${tamanho ? ` (tam. ${tamanho})` : " sem tamanho"}.`);
+      return;
+    }
+    transferStock(origem, destino, epiName, tamanho, qtd);
+    await saveAll();
+    showToast(`${qtd} unidade(s) de "${epiName}" transferida(s) de ${origem} para ${destino}.`);
+    warehousesModal();
   }
   if (kind === "precos") {
     if (!isSuper()) return;
