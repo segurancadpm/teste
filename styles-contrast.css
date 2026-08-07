@@ -1,0 +1,119 @@
+/* DPM UI contrast correction - loaded after styles.css */
+:root {
+  color-scheme: light;
+  --bg: #f4f7f9;
+  --bg-top: #ffffff;
+  --bg-glow: rgba(0, 163, 224, .08);
+  --panel: #ffffff;
+  --panel-2: #eef4f7;
+  --line: #c7d2d9;
+  --text: #17232d;
+  --muted: #52636f;
+  --accent: #0077b6;
+  --accent-2: #008f7a;
+  --warn: #9a6500;
+  --danger: #c6283d;
+  --ok: #147a4b;
+  --ink: #ffffff;
+  --amber: #9a6500;
+}
+
+/* Ensure every form control has readable text and sufficient contrast. */
+.input, .select, .textarea,
+input, select, textarea {
+  color: #17232d !important;
+  background: #ffffff !important;
+  border-color: #aebdc6 !important;
+  opacity: 1 !important;
+}
+
+.input::placeholder, .textarea::placeholder,
+input::placeholder, textarea::placeholder {
+  color: #667985 !important;
+  opacity: 1 !important;
+}
+
+/* Informational availability/status panels: dark text on a light surface. */
+[class*="info"], [class*="available"], [class*="availability"],
+[class*="stock-info"], [class*="stock-available"],
+.notice, .info-box, .availability, .stock-info {
+  color: #075985 !important;
+  background: #e0f2fe !important;
+  border-color: #38a8df !important;
+}
+
+[class*="info"] *, [class*="available"] *, [class*="availability"] *,
+[class*="stock-info"] *, [class*="stock-available"] *,
+.notice *, .info-box *, .availability *, .stock-info * {
+  color: #075985 !important;
+}
+
+.primary-btn {
+  background: #0077b6 !important;
+  color: #ffffff !important;
+}
+
+.ghost-btn, .logout-btn, .icon-btn {
+  background: #ffffff !important;
+  color: #17232d !important;
+  border-color: #aebdc6 !important;
+}
+
+.badge.blue {
+  background: #d9effb !important;
+  color: #075985 !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #101820;
+    --bg-top: #142434;
+    --bg-glow: rgba(0, 163, 224, .14);
+    --panel: #172532;
+    --panel-2: #1d3142;
+    --line: #405766;
+    --text: #eef7fb;
+    --muted: #b3c4cd;
+    --accent: #19b5ed;
+    --accent-2: #28d4bd;
+    --ink: #101820;
+  }
+
+  .input, .select, .textarea,
+  input, select, textarea {
+    color: #eef7fb !important;
+    background: #172532 !important;
+    border-color: #526b79 !important;
+  }
+
+  .input::placeholder, .textarea::placeholder,
+  input::placeholder, textarea::placeholder {
+    color: #a9bdc8 !important;
+  }
+
+  [class*="info"], [class*="available"], [class*="availability"],
+  [class*="stock-info"], [class*="stock-available"],
+  .notice, .info-box, .availability, .stock-info {
+    color: #d9f2ff !important;
+    background: #173b50 !important;
+    border-color: #268fc0 !important;
+  }
+
+  [class*="info"] *, [class*="available"] *, [class*="availability"] *,
+  [class*="stock-info"] *, [class*="stock-available"] *,
+  .notice *, .info-box *, .availability *, .stock-info * {
+    color: #d9f2ff !important;
+  }
+
+  .primary-btn {
+    background: #0b9bd1 !important;
+    color: #06141c !important;
+  }
+
+  .ghost-btn, .logout-btn, .icon-btn {
+    background: #172532 !important;
+    color: #eef7fb !important;
+    border-color: #526b79 !important;
+  }
+}
