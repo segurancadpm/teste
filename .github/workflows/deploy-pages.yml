@@ -31,14 +31,19 @@ jobs:
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: Confirmar ficheiros da versão publicada
+      - name: Validar ficheiros da versão a publicar
         run: |
-          echo "Commit publicado: $GITHUB_SHA"
+          set -e
+          echo "Commit a publicar: $GITHUB_SHA"
           test -f index.html
           test -f app.js
-          grep -q "Gerir Armazéns" app.js
-          grep -q "Transferir Stock entre Armazéns" app.js
-          echo "Gestão de armazéns encontrada na versão a publicar."
+          test -f styles.css
+          test -f styles-contrast.css
+          test -f logo.css
+          test -f return-epi.js
+          grep -q "data:image/jpeg;base64" logo.css
+          grep -q "DPM Solutions" index.html
+          echo "Validação concluída: estrutura, logo e módulos principais encontrados."
 
       - name: Upload versão atual do site
         uses: actions/upload-pages-artifact@v3
