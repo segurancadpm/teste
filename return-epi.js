@@ -11,256 +11,170 @@ const firebaseConfig = {
   measurementId: "G-VZK3WE1MDJ"
 };
 
-const firebaseApp = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
-const db = getFirestore(firebaseApp);
+const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+const db = getFirestore(app);
 const MAIN_DOC = "dpm_epi_data_v1";
-const RETURN_BUTTON_ID = "return-epi-btn";
 
-function esc(value) {
-  return String(value ?? "").replace(/[&<>\"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+function esc(v) {
+  return String(v ?? "").replace(/[&<>\"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
 }
-
 function todayPT() { return new Date().toLocaleDateString("pt-PT"); }
-
-function normalizeStock(value) {
-  if (typeof value === "number") return { loose: value, sizes: {} };
-  if (!value || typeof value !== "object") return { loose: 0, sizes: {} };
-  return {
-    loose: Number(value.loose || 0),
-    sizes: Object.fromEntries(Object.entries(value.sizes || {}).map(([k, v]) => [String(k).toUpperCase(), Number(v || 0)]))
-  };
+function currentWorkerName() { return document.querySelector(".detail-header h1")?.textContent?.trim() || ""; }
+function normalizeStock(v) {
+  if (typeof v === "number") return { loose: v, sizes: {} };
+  if (!v || typeof v !== "object") return { loose: 0, sizes: {} };
+  return { loose: Number(v.loose || 0), sizes: Object.fromEntries(Object.entries(v.sizes || {}).map(([k,n]) => [String(k).toUpperCase(), Number(n || 0)])) };
 }
-
-function addStockToData(data, warehouse, epi, size, qty) {
+function addStock(data, warehouse, epi, size, qty) {
   if (!data.stocks) data.stocks = {};
   if (!data.stocks[warehouse]) data.stocks[warehouse] = {};
-  const current = normalizeStock(data.stocks[warehouse][epi]);
+  const s = normalizeStock(data.stocks[warehouse][epi]);
   const key = String(size || "").trim().toUpperCase();
-  if (key) current.sizes[key] = Number(current.sizes[key] || 0) + qty;
-  else current.loose += qty;
-  data.stocks[warehouse][epi] = current;
+  if (key) s.sizes[key] = Number(s.sizes[key] || 0) + qty;
+  else s.loose += qty;
+  data.stocks[warehouse][epi] = s;
 }
 
-function currentWorkerName() {
-  return document.querySelector(".detail-header h1")?.textContent?.trim() || "";
-}
-
-function currentWorkerIdFromData(data, name) {
-  return (data.trabalhadores || []).find(w => String(w.nome).trim() === String(name).trim())?.id ?? null;
-}
-
-function activeItems(data, workerId) {
-  return (data.eventos || []).filter(e =>
-    e.idTrab === workerId && e.tipo === "ENTREGA" && e.statusAlerta === "ATIVO" && Number(e.qtd || 0) > 0
-  );
-}
-
-function installLocalStyles() {
-  if (document.getElementById("return-epi-styles")) return;
+function installStyles() {
+  if (document.getElementById("per-item-return-styles")) return;
   const style = document.createElement("style");
-  style.id = "return-epi-styles";
+  style.id = "per-item-return-styles";
   style.textContent = `
-    .field-label{display:block;margin:0 0 6px;font-size:.78rem;font-weight:800;line-height:1.2;color:var(--text,#eef7fb)}
-    .field-help{display:block;margin:-1px 0 7px;font-size:.72rem;line-height:1.35;color:var(--muted,#9fb5c1)}
-    .delivery-item .field-row.two>div{min-width:0}
-    #return-epi-body .info-box{font-weight:700;line-height:1.45}
-    #return-epi-body .primary-btn{margin-top:4px}
+    .epi-return-btn{margin-top:6px;white-space:nowrap;font-size:.72rem;padding:5px 8px}
+    .epi-return-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+    .return-confirm-box{padding:14px;border-radius:10px;background:var(--surface-2,#10202a);border:1px solid var(--border,#28404c)}
+    .return-confirm-box strong{display:block;margin-bottom:6px}
+    .return-confirm-box .meta{display:block;line-height:1.45}
   `;
   document.head.appendChild(style);
 }
 
-function openReturnModal() {
+async function getActiveEvents() {
+  const snap = await getDoc(doc(db, "appdata", MAIN_DOC));
+  if (!snap.exists()) return [];
+  const data = snap.data();
+  const worker = (data.trabalhadores || []).find(w => String(w.nome).trim() === currentWorkerName());
+  if (!worker) return [];
+  // Igual à renderização da ficha: eventos do trabalhador, do mais recente para o mais antigo.
+  return (data.eventos || []).filter(e => e.idTrab === worker.id).slice().reverse();
+}
+
+async function openItemReturn(event) {
   const root = document.querySelector("#modal-root");
   if (!root) return;
+  const max = Number(event.qtd || 0);
   root.innerHTML = `
-    <div class="modal-overlay" data-return-close>
-      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="return-title">
-        <div class="modal-head">
-          <h2 id="return-title">Devolver EPI</h2>
-          <button class="icon-btn" type="button" data-return-close>×</button>
+    <div class="modal-overlay" data-item-return-close>
+      <div class="modal" role="dialog" aria-modal="true">
+        <div class="modal-head"><h2>Devolver este EPI</h2><button class="icon-btn" data-item-return-close>×</button></div>
+        <div class="return-confirm-box">
+          <strong>${esc(event.epi)}${event.tamanho ? ` · Tam. ${esc(event.tamanho)}` : ""}</strong>
+          <span class="meta">Entregue em ${esc(event.data || "—")} · Quantidade atualmente entregue: <strong>${max}</strong></span>
+          <span class="meta">A devolução será feita para <strong>${esc(event.armazem || "o armazém associado à entrega")}</strong>.</span>
         </div>
-        <div id="return-epi-body" class="empty">A carregar EPIs ativos…</div>
+        <form id="single-return-form" style="margin-top:12px">
+          <div class="field-row">
+            <label class="field-label">Quantidade a devolver</label>
+            <input class="input" name="qtd" type="number" min="1" max="${max}" value="1" required>
+          </div>
+          <div class="field-row">
+            <label class="field-label">Observação (opcional)</label>
+            <textarea class="textarea" name="obs" placeholder="Ex.: troca, desgaste, saída do trabalhador…"></textarea>
+          </div>
+          <button class="primary-btn" type="submit">↩ Confirmar devolução deste EPI</button>
+        </form>
       </div>
     </div>`;
-  loadReturnItems();
+  root.querySelector("#single-return-form").addEventListener("submit", async ev => {
+    ev.preventDefault();
+    const qty = Number(new FormData(ev.currentTarget).get("qtd") || 0);
+    const obs = String(new FormData(ev.currentTarget).get("obs") || "").trim();
+    await processReturn(event, qty, obs);
+  });
 }
 
-async function loadReturnItems() {
-  const body = document.querySelector("#return-epi-body");
-  if (!body) return;
+async function processReturn(event, qty, obs) {
+  if (!event?.id || qty <= 0) return;
   try {
-    const snap = await getDoc(doc(db, "appdata", MAIN_DOC));
-    if (!snap.exists()) {
-      body.innerHTML = `<div class="empty">Não foi possível carregar os dados.</div>`;
-      return;
-    }
-    const data = snap.data();
-    const workerId = currentWorkerIdFromData(data, currentWorkerName());
-    const items = activeItems(data, workerId);
-    if (!items.length) {
-      body.innerHTML = `<div class="empty">Este trabalhador não tem EPIs ativos para devolver.</div>`;
-      return;
-    }
-    body.innerHTML = `
-      <p class="meta">Selecione <strong>um único EPI</strong> para devolver. A devolução não apaga o registo da entrega.</p>
-      <form data-return-form>
-        <div class="field-row">
-          <label class="field-label">EPI a devolver</label>
-          <select class="select" name="eventId" required>
-            ${items.map((e, i) => `<option value="${esc(e.id)}" ${i === 0 ? "selected" : ""}>${esc(e.epi)}${e.tamanho ? ` · Tam. ${esc(e.tamanho)}` : " · Sem tamanho"} · ${Number(e.qtd || 0)} un.</option>`).join("")}
-          </select>
-        </div>
-        <div class="field-row two">
-          <div>
-            <label class="field-label">Quantidade a devolver</label>
-            <input class="input" name="qtd" type="number" min="1" value="1" required>
-          </div>
-          <div>
-            <label class="field-label">Destino do EPI</label>
-            <input class="input" value="Armazém do trabalhador" disabled>
-          </div>
-        </div>
-        <div class="info-box" id="return-info"></div>
-        <div class="field-row">
-          <label class="field-label">Observação (opcional)</label>
-          <textarea class="textarea" name="obs" placeholder="Ex.: devolvido por troca, desgaste, saída do trabalhador…"></textarea>
-        </div>
-        <button class="primary-btn" type="submit">↩ Registar devolução</button>
-      </form>`;
-    updateReturnPreview(body, items);
-  } catch (e) {
-    console.error("Erro ao carregar devolução:", e);
-    body.innerHTML = `<div class="empty">Erro ao carregar os EPIs. ${esc(e.message || e)}</div>`;
-  }
-}
-
-function updateReturnPreview(root, items) {
-  const form = root.querySelector("[data-return-form]");
-  const info = root.querySelector("#return-info");
-  if (!form || !info) return;
-  const event = items.find(e => String(e.id) === String(form.eventId.value)) || items[0];
-  const max = Number(event?.qtd || 0);
-  form.qtd.max = String(max);
-  if (Number(form.qtd.value) > max) form.qtd.value = String(max);
-  info.textContent = event
-    ? `Será devolvido para ${event.armazem || "o armazém do trabalhador"}: ${event.epi}${event.tamanho ? ` · tamanho ${event.tamanho}` : " · sem tamanho"}. Máximo: ${max} unidade(s).`
-    : "";
-}
-
-async function processReturn(form) {
-  const workerName = currentWorkerName();
-  const eventId = form.eventId.value;
-  const qty = Number(form.qtd.value || 0);
-  const obs = String(form.obs.value || "").trim();
-  if (!workerName || !eventId || qty <= 0) return;
-
-  try {
-    await runTransaction(db, async transaction => {
+    await runTransaction(db, async tx => {
       const ref = doc(db, "appdata", MAIN_DOC);
-      const snap = await transaction.get(ref);
+      const snap = await tx.get(ref);
       if (!snap.exists()) throw new Error("Dados principais não encontrados.");
       const data = snap.data();
-      const worker = (data.trabalhadores || []).find(w => String(w.nome).trim() === String(workerName).trim());
+      const worker = (data.trabalhadores || []).find(w => String(w.nome).trim() === currentWorkerName());
       if (!worker) throw new Error("Trabalhador não encontrado.");
-      const event = (data.eventos || []).find(e => String(e.id) === String(eventId) && e.idTrab === worker.id && e.tipo === "ENTREGA" && e.statusAlerta === "ATIVO");
-      if (!event) throw new Error("Este EPI já foi alterado ou devolvido. Atualize a página e tente novamente.");
-      const available = Number(event.qtd || 0);
+      const target = (data.eventos || []).find(e => String(e.id) === String(event.id) && e.idTrab === worker.id && e.tipo === "ENTREGA" && e.statusAlerta === "ATIVO");
+      if (!target) throw new Error("Este EPI já foi devolvido ou alterado. Atualize a ficha e tente novamente.");
+      const available = Number(target.qtd || 0);
       if (qty > available) throw new Error(`Só existem ${available} unidade(s) desta entrega para devolver.`);
 
-      addStockToData(data, event.armazem || worker.delegacao, event.epi, event.tamanho, qty);
+      addStock(data, target.armazem || worker.delegacao, target.epi, target.tamanho, qty);
 
       if (qty === available) {
-        event.statusAlerta = "BAIXA";
-        event.estado = obs ? `Devolvido · ${obs}` : "Devolvido";
+        target.statusAlerta = "BAIXA";
+        target.estado = obs ? `Devolvido · ${obs}` : "Devolvido";
       } else {
-        event.qtd = available - qty;
+        target.qtd = available - qty;
       }
 
-      data.eventos = data.eventos || [];
+      if (!Array.isArray(data.eventos)) data.eventos = [];
       data.eventos.push({
-        id: `DEV-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        id: `DEV-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
         idTrab: worker.id,
         data: todayPT(),
         tipo: "DEVOLUÇÃO",
-        epi: event.epi,
+        epi: target.epi,
         qtd: qty,
-        tamanho: event.tamanho || "",
-        armazem: event.armazem || worker.delegacao,
+        tamanho: target.tamanho || "",
+        armazem: target.armazem || worker.delegacao,
         estado: obs ? `Devolvido · ${obs}` : "Devolvido",
         statusAlerta: "BAIXA",
         validade: "",
         responsavel: "Registo na aplicação"
       });
 
-      transaction.set(ref, data);
+      // Mantém todos os dados existentes e grava a alteração atomicamente.
+      tx.set(ref, data);
     });
-
     document.querySelector("#modal-root").innerHTML = "";
     const toast = document.createElement("div");
     toast.className = "success-pop";
-    toast.textContent = "Devolução registada com sucesso";
+    toast.textContent = "EPI devolvido e stock atualizado";
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 1800);
-  } catch (e) {
-    console.error("Erro ao registar devolução:", e);
-    alert(`Não foi possível registar a devolução.\n\n${e.message || e}\n\nNenhum dado foi apagado.`);
+  } catch (err) {
+    console.error(err);
+    alert(`Não foi possível registar a devolução.\n\n${err.message || err}\n\nNenhum dado foi apagado.`);
   }
 }
 
-function injectReturnButton() {
-  const actionRow = document.querySelector(".detail-header")?.nextElementSibling;
-  if (!actionRow || !actionRow.classList.contains("action-row")) return;
-  if (document.getElementById(RETURN_BUTTON_ID)) return;
-  const button = document.createElement("button");
-  button.id = RETURN_BUTTON_ID;
-  button.className = "ghost-btn";
-  button.type = "button";
-  button.textContent = "↩ Devolver EPI";
-  button.title = "Devolver um único EPI desta ficha";
-  actionRow.insertBefore(button, actionRow.children[1] || null);
-  button.addEventListener("click", openReturnModal);
-}
-
-function enhanceDeliveryModal() {
-  const form = document.querySelector('form[data-form="delivery"]');
-  if (!form) return;
-  form.querySelectorAll(".delivery-item").forEach(item => {
-    const months = item.querySelector('[name="meses"]');
-    const qty = item.querySelector('[name="qtd"]');
-    if (!months || !qty || item.dataset.enhanced === "1") return;
-    item.dataset.enhanced = "1";
-
-    const qtyWrap = qty.parentElement;
-    const monthsWrap = months.parentElement;
-    if (qtyWrap && !qtyWrap.querySelector(".field-label")) {
-      qtyWrap.insertAdjacentHTML("afterbegin", `<label class="field-label">Quantidade a entregar</label>`);
-    }
-    if (monthsWrap && !monthsWrap.querySelector(".field-label")) {
-      monthsWrap.insertAdjacentHTML("afterbegin", `<label class="field-label">Validade do EPI (meses)</label><span class="field-help">Preenchido automaticamente pela validade padrão deste EPI. Pode alterar se necessário.</span>`);
-    }
+async function injectPerItemButtons() {
+  const table = document.querySelector(".detail-header")?.parentElement?.querySelector("table");
+  if (!table) return;
+  const rows = Array.from(table.querySelectorAll("tbody tr"));
+  if (!rows.length || rows.some(r => r.dataset.returnEnhanced === "1")) return;
+  let events;
+  try { events = await getActiveEvents(); } catch { return; }
+  rows.forEach((row, index) => {
+    const event = events[index];
+    if (!event || event.tipo !== "ENTREGA" || event.statusAlerta !== "ATIVO" || Number(event.qtd || 0) <= 0) return;
+    row.dataset.returnEnhanced = "1";
+    const cell = row.insertCell(-1);
+    cell.className = "epi-return-cell";
+    cell.innerHTML = `<button type="button" class="ghost-btn epi-return-btn">↩ Devolver este EPI</button>`;
+    cell.querySelector("button").addEventListener("click", () => openItemReturn(event));
   });
 }
 
-document.addEventListener("click", ev => {
-  if (ev.target.closest("[data-return-close]")) document.querySelector("#modal-root").innerHTML = "";
-});
+// Remove o antigo botão global "Devolver EPI" caso exista. A ação passa a estar no próprio EPI.
+function removeGlobalReturnButton() {
+  document.getElementById("return-epi-btn")?.remove();
+}
 
-document.addEventListener("change", ev => {
-  const form = ev.target.closest("[data-return-form]");
-  if (form && ev.target.name === "eventId") loadReturnItems();
-});
-
-document.addEventListener("submit", ev => {
-  if (ev.target.matches("[data-return-form]")) {
-    ev.preventDefault();
-    processReturn(ev.target);
-  }
-});
-
-installLocalStyles();
+installStyles();
 const observer = new MutationObserver(() => {
-  injectReturnButton();
-  enhanceDeliveryModal();
+  removeGlobalReturnButton();
+  injectPerItemButtons();
 });
 observer.observe(document.body, { childList: true, subtree: true });
-setTimeout(() => { injectReturnButton(); enhanceDeliveryModal(); }, 300);
+setTimeout(() => { removeGlobalReturnButton(); injectPerItemButtons(); }, 500);
