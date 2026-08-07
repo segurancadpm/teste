@@ -1,67 +1,155 @@
-/* DPM UI contrast correction - loaded after styles.css */
+/* DPM - Accessibility / Contrast layer
+   Loaded after styles.css. Keep functional CSS untouched. */
 :root {
   color-scheme: light;
   --bg: #f4f7f9;
   --bg-top: #ffffff;
-  --bg-glow: rgba(0, 163, 224, .08);
+  --bg-glow: rgba(0, 119, 182, .08);
   --panel: #ffffff;
   --panel-2: #eef4f7;
-  --line: #c7d2d9;
+  --line: #b8c7d0;
   --text: #17232d;
   --muted: #52636f;
-  --accent: #0077b6;
-  --accent-2: #008f7a;
-  --warn: #9a6500;
-  --danger: #c6283d;
-  --ok: #147a4b;
+  --accent: #006fae;
+  --accent-2: #087f70;
+  --warn: #7a5100;
+  --danger: #b51f36;
+  --ok: #126b43;
   --ink: #ffffff;
-  --amber: #9a6500;
+  --amber: #7a5100;
 }
 
-/* Ensure every form control has readable text and sufficient contrast. */
-.input, .select, .textarea,
-input, select, textarea {
+/* Base text: avoid browser Canvas/Accent colors that can become too light. */
+body,
+#app,
+.section,
+.section-head,
+.screen-title,
+.detail-header,
+.modal,
+.modal-body,
+.card,
+.panel {
+  color: #17232d;
+}
+
+h1, h2, h3, h4, h5, h6,
+p, span, label, small, strong, td, th,
+legend, summary {
+  text-shadow: none;
+}
+
+/* Secondary text remains readable, not pale. */
+.meta,
+.brand p,
+.screen-title p,
+.kpi span,
+.budget-row span,
+.budget-mini-list span,
+.budget-editor-head,
+.quick-card .meta {
+  color: #52636f !important;
+}
+
+/* Panels/cards. */
+.user-card, .kpi, .worker-card, .stock-card, .alert-card,
+.quick-card, .budget-card, .delivery-item,
+.budget-editor-row, .pin-panel, .table-wrap {
   color: #17232d !important;
   background: #ffffff !important;
-  border-color: #aebdc6 !important;
+  border-color: #b8c7d0 !important;
+}
+
+/* Inputs/selects/textareas/options. */
+.input, .select, .textarea,
+input, select, textarea, option {
+  color: #17232d !important;
+  background: #ffffff !important;
+  border-color: #9eafb9 !important;
   opacity: 1 !important;
+  -webkit-text-fill-color: #17232d !important;
 }
 
 .input::placeholder, .textarea::placeholder,
 input::placeholder, textarea::placeholder {
-  color: #667985 !important;
+  color: #52636f !important;
   opacity: 1 !important;
+  -webkit-text-fill-color: #52636f !important;
 }
 
-/* Informational availability/status panels: dark text on a light surface. */
-[class*="info"], [class*="available"], [class*="availability"],
-[class*="stock-info"], [class*="stock-available"],
-.notice, .info-box, .availability, .stock-info {
-  color: #075985 !important;
-  background: #e0f2fe !important;
-  border-color: #38a8df !important;
-}
-
-[class*="info"] *, [class*="available"] *, [class*="availability"] *,
-[class*="stock-info"] *, [class*="stock-available"] *,
-.notice *, .info-box *, .availability *, .stock-info * {
-  color: #075985 !important;
-}
-
+/* Buttons. */
 .primary-btn {
-  background: #0077b6 !important;
+  background: #006fae !important;
   color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+.danger-btn {
+  background: #b51f36 !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
 }
 
 .ghost-btn, .logout-btn, .icon-btn {
   background: #ffffff !important;
   color: #17232d !important;
-  border-color: #aebdc6 !important;
+  border-color: #9eafb9 !important;
+  -webkit-text-fill-color: #17232d !important;
 }
 
-.badge.blue {
-  background: #d9effb !important;
+/* Availability / stock information - the area shown in the screenshot. */
+[class*="info"], [class*="available"], [class*="availability"],
+[class*="stock-info"], [class*="stock-available"],
+[class*="stock-status"], [class*="availability"],
+.notice, .info-box, .availability, .stock-info, .stock-status {
   color: #075985 !important;
+  background: #e0f2fe !important;
+  border-color: #38a8df !important;
+  -webkit-text-fill-color: #075985 !important;
+}
+
+[class*="info"] *, [class*="available"] *, [class*="availability"] *,
+[class*="stock-info"] *, [class*="stock-available"] *,
+[class*="stock-status"] *, .notice *, .info-box *,
+.availability *, .stock-info *, .stock-status * {
+  color: #075985 !important;
+  -webkit-text-fill-color: #075985 !important;
+}
+
+/* Stock cards / quantities: make the important numbers and labels explicit. */
+.stock-card strong,
+.stock-card span,
+.stock-card p,
+.stock-card label,
+.stock-list strong,
+.stock-list span {
+  color: #17232d !important;
+  -webkit-text-fill-color: #17232d !important;
+}
+
+/* Status badges. */
+.badge {
+  color: #17232d !important;
+  -webkit-text-fill-color: #17232d !important;
+}
+.badge.ok { background: #b8ead2 !important; color: #07512f !important; }
+.badge.warn { background: #ffe2a6 !important; color: #654000 !important; }
+.badge.danger { background: #ffd1d8 !important; color: #8b1428 !important; }
+.badge.blue { background: #d9effb !important; color: #075985 !important; }
+
+/* Tables. */
+th { color: #52636f !important; }
+td { color: #17232d !important; }
+
+/* Links and interactive text. */
+a { color: #006fae; }
+a:visited { color: #005a8f; }
+
+/* Never let disabled controls become unreadably faint. */
+button:disabled, input:disabled, select:disabled, textarea:disabled {
+  opacity: .75 !important;
+  color: #52636f !important;
+  -webkit-text-fill-color: #52636f !important;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -72,48 +160,98 @@ input::placeholder, textarea::placeholder {
     --bg-glow: rgba(0, 163, 224, .14);
     --panel: #172532;
     --panel-2: #1d3142;
-    --line: #405766;
+    --line: #526b79;
     --text: #eef7fb;
-    --muted: #b3c4cd;
-    --accent: #19b5ed;
-    --accent-2: #28d4bd;
+    --muted: #b8cbd5;
+    --accent: #27b8ed;
+    --accent-2: #35d9c3;
+    --warn: #ffd36a;
+    --danger: #ff8090;
+    --ok: #63e5a2;
     --ink: #101820;
   }
 
-  .input, .select, .textarea,
-  input, select, textarea {
+  body, #app, .section, .section-head, .screen-title,
+  .detail-header, .modal, .modal-body, .card, .panel,
+  h1, h2, h3, h4, h5, h6, p, span, label, small, strong,
+  td, th, legend, summary {
+    color: #eef7fb;
+  }
+
+  .meta, .brand p, .screen-title p, .kpi span,
+  .budget-row span, .budget-mini-list span,
+  .budget-editor-head, .quick-card .meta {
+    color: #b8cbd5 !important;
+  }
+
+  .user-card, .kpi, .worker-card, .stock-card, .alert-card,
+  .quick-card, .budget-card, .delivery-item,
+  .budget-editor-row, .pin-panel, .table-wrap {
     color: #eef7fb !important;
     background: #172532 !important;
     border-color: #526b79 !important;
   }
 
+  .input, .select, .textarea, input, select, textarea, option {
+    color: #eef7fb !important;
+    background: #172532 !important;
+    border-color: #607987 !important;
+    -webkit-text-fill-color: #eef7fb !important;
+  }
+
   .input::placeholder, .textarea::placeholder,
   input::placeholder, textarea::placeholder {
-    color: #a9bdc8 !important;
-  }
-
-  [class*="info"], [class*="available"], [class*="availability"],
-  [class*="stock-info"], [class*="stock-available"],
-  .notice, .info-box, .availability, .stock-info {
-    color: #d9f2ff !important;
-    background: #173b50 !important;
-    border-color: #268fc0 !important;
-  }
-
-  [class*="info"] *, [class*="available"] *, [class*="availability"] *,
-  [class*="stock-info"] *, [class*="stock-available"] *,
-  .notice *, .info-box *, .availability *, .stock-info * {
-    color: #d9f2ff !important;
+    color: #b8cbd5 !important;
+    -webkit-text-fill-color: #b8cbd5 !important;
   }
 
   .primary-btn {
     background: #0b9bd1 !important;
     color: #06141c !important;
+    -webkit-text-fill-color: #06141c !important;
+  }
+
+  .danger-btn {
+    background: #d94b60 !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
   }
 
   .ghost-btn, .logout-btn, .icon-btn {
     background: #172532 !important;
     color: #eef7fb !important;
-    border-color: #526b79 !important;
+    border-color: #607987 !important;
+    -webkit-text-fill-color: #eef7fb !important;
   }
+
+  [class*="info"], [class*="available"], [class*="availability"],
+  [class*="stock-info"], [class*="stock-available"],
+  [class*="stock-status"], .notice, .info-box,
+  .availability, .stock-info, .stock-status {
+    color: #d9f2ff !important;
+    background: #173b50 !important;
+    border-color: #268fc0 !important;
+    -webkit-text-fill-color: #d9f2ff !important;
+  }
+
+  [class*="info"] *, [class*="available"] *, [class*="availability"] *,
+  [class*="stock-info"] *, [class*="stock-available"] *,
+  [class*="stock-status"] *, .notice *, .info-box *,
+  .availability *, .stock-info *, .stock-status * {
+    color: #d9f2ff !important;
+    -webkit-text-fill-color: #d9f2ff !important;
+  }
+
+  .stock-card strong, .stock-card span, .stock-card p,
+  .stock-card label, .stock-list strong, .stock-list span,
+  td { color: #eef7fb !important; -webkit-text-fill-color: #eef7fb !important; }
+
+  th { color: #b8cbd5 !important; }
+  a { color: #58c9f2; }
+  a:visited { color: #8bd8f5; }
+
+  .badge.ok { background: #185d43 !important; color: #b8f1d4 !important; }
+  .badge.warn { background: #6b4c12 !important; color: #ffe3a1 !important; }
+  .badge.danger { background: #702535 !important; color: #ffd4da !important; }
+  .badge.blue { background: #174c66 !important; color: #bfeaff !important; }
 }
