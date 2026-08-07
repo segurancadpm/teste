@@ -1,20 +1,41 @@
-// Gestão de Armazéns: acesso persistente para o SuperAdmin.
+// Gestão de Armazéns — acesso exclusivo ao SuperAdmin.
 // Não altera dados do Firestore.
 (() => {
   const STORAGE_KEY = 'dpm_superadmin_warehouse_nav';
 
-  const hasWarehouseAction = () => [...document.querySelectorAll('button, a')]
-    .some(el => /armaz[eé]ns/i.test((el.textContent || '').trim()));
+  const text = el => (el?.textContent || '').trim();
+  const isWarehouseAction = el => /armaz[eé]ns/i.test(text(el));
+  const hasWarehouseAction = () => [...document.querySelectorAll('button, a')].some(isWarehouseAction);
 
-  const isKnownSuperAdmin = () => sessionStorage.getItem(STORAGE_KEY) === '1';
+  // A presença da ação original é a única prova de que a sessão atual tem
+  // permissão. Nunca damos acesso a outro perfil apenas porque este browser
+  // já foi usado pelo SuperAdmin.
+  const markSuperAdminSession = () => {
+    if (hasWarehouseAction()) sessionStorage.setItem(STORAGE_KEY, '1');
+  };
+
+  const isLoginScreen = () => {
+    const body = document.body?.innerText || '';
+    return /introduza o pin|introduzir pin|c[oó]digo pin|iniciar sess[aã]o/i.test(body) &&
+           document.querySelector('input[type="password"], input[inputmode="numeric"]');
+  };
+
+  const isKnownSuperAdmin = () => sessionStorage.getItem(STORAGE_KEY) === '1' && !isLoginScreen();
 
   const ensureWarehouseButton = () => {
     const nav = document.querySelector('.bottom-nav');
     if (!nav) return;
 
-    // Quando a ação original aparece no ecrã inicial, confirmamos que esta sessão
-    // tem acesso à gestão de armazéns. A marca fica apenas na sessão do browser.
-    if (hasWarehouseAction()) sessionStorage.setItem(STORAGE_KEY, '1');
+    // Se apareceu a ação original, esta sessão é efetivamente SuperAdmin.
+    markSuperAdminSession();
+
+    // Se voltámos ao ecrã de login, limpar a autorização antiga para impedir
+    // que outro perfil herde o botão no mesmo browser.
+    if (isLoginScreen()) {
+      sessionStorage.removeItem(STORAGE_KEY);
+      nav.querySelector('[data-nav-warehouse]')?.remove();
+      return;
+    }
 
     const existing = nav.querySelector('[data-nav-warehouse]');
     if (!isKnownSuperAdmin()) {
@@ -38,25 +59,16 @@
       <span>Armazéns</span>`;
 
     btn.addEventListener('click', () => {
-      // A gestão original é aberta a partir da página inicial. Se já estiver
-      // presente, abrimos diretamente; caso contrário voltamos ao Início e
-      // acionamos a opção original, preservando toda a lógica existente.
       const openExisting = () => {
         const action = [...document.querySelectorAll('button, a')]
-          .find(el => /armaz[eé]ns/i.test((el.textContent || '').trim()) && el !== btn);
-        if (action) {
-          action.click();
-          return true;
-        }
+          .find(el => isWarehouseAction(el) && el !== btn);
+        if (action) { action.click(); return true; }
         return false;
       };
-
       if (openExisting()) return;
-
       const home = [...document.querySelectorAll('button, a')]
-        .find(el => /^(in[ií]cio|home)$/i.test((el.textContent || '').trim()));
+        .find(el => /^(in[ií]cio|home)$/i.test(text(el)));
       if (home) home.click();
-
       let attempts = 0;
       const timer = setInterval(() => {
         attempts += 1;
