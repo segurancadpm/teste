@@ -40,13 +40,37 @@ function installStyles() {
   const style = document.createElement("style");
   style.id = "per-item-return-styles";
   style.textContent = `
-    .epi-return-btn{margin-top:6px;white-space:nowrap;font-size:.72rem;padding:5px 8px}
+    .epi-return-btn{margin-top:4px;white-space:nowrap;font-size:0;padding:5px 7px;min-width:32px;min-height:30px;border-radius:7px;border:1px solid #c85a4b;background:#fff1ee;color:#a62f22;font-weight:800;line-height:1}
+    .epi-return-btn::before{content:"↩";font-size:16px}
+    .epi-return-btn:hover{background:#ffe0da;color:#8f2419}
+    .epi-return-cell{width:42px;text-align:center;vertical-align:middle}
     .epi-return-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
     .return-confirm-box{padding:14px;border-radius:10px;background:var(--surface-2,#10202a);border:1px solid var(--border,#28404c)}
     .return-confirm-box strong{display:block;margin-bottom:6px}
     .return-confirm-box .meta{display:block;line-height:1.45}
+    .months-help-label{display:block;font-size:.78rem;font-weight:800;margin-bottom:5px;color:var(--text,#17313d)}
+    .months-help-text{display:block;margin-top:4px;font-size:.72rem;color:var(--muted,#5b7180);line-height:1.3}
   `;
   document.head.appendChild(style);
+}
+
+function improveMonthsField() {
+  document.querySelectorAll('input[name="meses"]').forEach(input => {
+    if (input.dataset.monthsEnhanced === "1") return;
+    input.dataset.monthsEnhanced = "1";
+    const wrap = input.closest(".field-row") || input.parentElement;
+    if (!wrap) return;
+    const label = document.createElement("label");
+    label.className = "months-help-label";
+    label.textContent = "Validade do EPI (meses)";
+    const help = document.createElement("span");
+    help.className = "months-help-text";
+    help.textContent = "Período de validade após a entrega. Já vem preenchido de acordo com o artigo selecionado.";
+    wrap.insertBefore(label, input);
+    wrap.appendChild(help);
+    input.setAttribute("aria-label", "Validade do EPI em meses");
+    input.title = "Número de meses de validade do EPI";
+  });
 }
 
 async function getActiveEvents() {
@@ -55,7 +79,6 @@ async function getActiveEvents() {
   const data = snap.data();
   const worker = (data.trabalhadores || []).find(w => String(w.nome).trim() === currentWorkerName());
   if (!worker) return [];
-  // Igual à renderização da ficha: eventos do trabalhador, do mais recente para o mais antigo.
   return (data.eventos || []).filter(e => e.idTrab === worker.id).slice().reverse();
 }
 
@@ -87,8 +110,9 @@ async function openItemReturn(event) {
     </div>`;
   root.querySelector("#single-return-form").addEventListener("submit", async ev => {
     ev.preventDefault();
-    const qty = Number(new FormData(ev.currentTarget).get("qtd") || 0);
-    const obs = String(new FormData(ev.currentTarget).get("obs") || "").trim();
+    const fd = new FormData(ev.currentTarget);
+    const qty = Number(fd.get("qtd") || 0);
+    const obs = String(fd.get("obs") || "").trim();
     await processReturn(event, qty, obs);
   });
 }
@@ -132,8 +156,6 @@ async function processReturn(event, qty, obs) {
         validade: "",
         responsavel: "Registo na aplicação"
       });
-
-      // Mantém todos os dados existentes e grava a alteração atomicamente.
       tx.set(ref, data);
     });
     document.querySelector("#modal-root").innerHTML = "";
@@ -161,12 +183,11 @@ async function injectPerItemButtons() {
     row.dataset.returnEnhanced = "1";
     const cell = row.insertCell(-1);
     cell.className = "epi-return-cell";
-    cell.innerHTML = `<button type="button" class="ghost-btn epi-return-btn">↩ Devolver este EPI</button>`;
+    cell.innerHTML = `<button type="button" class="ghost-btn epi-return-btn" title="Devolver este EPI" aria-label="Devolver este EPI"></button>`;
     cell.querySelector("button").addEventListener("click", () => openItemReturn(event));
   });
 }
 
-// Remove o antigo botão global "Devolver EPI" caso exista. A ação passa a estar no próprio EPI.
 function removeGlobalReturnButton() {
   document.getElementById("return-epi-btn")?.remove();
 }
@@ -174,7 +195,8 @@ function removeGlobalReturnButton() {
 installStyles();
 const observer = new MutationObserver(() => {
   removeGlobalReturnButton();
+  improveMonthsField();
   injectPerItemButtons();
 });
 observer.observe(document.body, { childList: true, subtree: true });
-setTimeout(() => { removeGlobalReturnButton(); injectPerItemButtons(); }, 500);
+setTimeout(() => { removeGlobalReturnButton(); improveMonthsField(); injectPerItemButtons(); }, 500);
