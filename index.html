@@ -12,6 +12,33 @@
   <body>
     <div id="app"></div>
     <div id="modal-root"></div>
-    <script type="module" src="app.js"></script>
+    <script>
+      // Boot seguro: um erro no módulo principal nunca deve deixar a página branca.
+      window.addEventListener('error', (event) => {
+        if (event.error) showBootError(event.error);
+      });
+      window.addEventListener('unhandledrejection', (event) => {
+        showBootError(event.reason || new Error('Erro não identificado'));
+      });
+
+      function showBootError(error) {
+        const app = document.getElementById('app');
+        if (!app || app.dataset.bootError === '1') return;
+        app.dataset.bootError = '1';
+        const message = String(error?.message || error || 'Erro desconhecido');
+        app.innerHTML = `
+          <section style="min-height:100vh;display:grid;place-items:center;padding:24px;font-family:system-ui,sans-serif;background:#101820;color:#eef7fb">
+            <div style="width:min(100%,520px);padding:24px;border:1px solid #334653;border-radius:14px;background:#172532">
+              <div style="font-size:28px;font-weight:800;color:#00a3e0;margin-bottom:8px">DPM Solutions</div>
+              <h1 style="font-size:20px;margin:0 0 10px">A aplicação não conseguiu iniciar</h1>
+              <p style="color:#9fb5c1;line-height:1.5">A página foi carregada, mas ocorreu um erro ao iniciar a aplicação. Recarregue a página. Se o erro persistir, envie este código ao responsável técnico.</p>
+              <pre style="white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;border-radius:8px;background:#0b1116;color:#ffb020;font-size:13px">${message.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}</pre>
+              <button onclick="location.reload()" style="min-height:42px;border:0;border-radius:8px;padding:0 16px;background:#00a3e0;color:#00131d;font-weight:700;cursor:pointer">Recarregar aplicação</button>
+            </div>
+          </section>`;
+      }
+
+      import('./app.js').catch(showBootError);
+    </script>
   </body>
 </html>
