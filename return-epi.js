@@ -1,5 +1,5 @@
 import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getFirestore, doc, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFirestore, doc, runTransaction, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAqt5RDygjfeQZ3zq8dYhEGbyIjg00Bbks",
@@ -20,9 +20,7 @@ function esc(value) {
   return String(value ?? "").replace(/[&<>\"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
 }
 
-function todayPT() {
-  return new Date().toLocaleDateString("pt-PT");
-}
+function todayPT() { return new Date().toLocaleDateString("pt-PT"); }
 
 function normalizeStock(value) {
   if (typeof value === "number") return { loose: value, sizes: {} };
@@ -48,17 +46,27 @@ function currentWorkerName() {
 }
 
 function currentWorkerIdFromData(data, name) {
-  const worker = (data.trabalhadores || []).find(w => String(w.nome).trim() === String(name).trim());
-  return worker?.id ?? null;
+  return (data.trabalhadores || []).find(w => String(w.nome).trim() === String(name).trim())?.id ?? null;
 }
 
 function activeItems(data, workerId) {
   return (data.eventos || []).filter(e =>
-    e.idTrab === workerId &&
-    e.tipo === "ENTREGA" &&
-    e.statusAlerta === "ATIVO" &&
-    Number(e.qtd || 0) > 0
+    e.idTrab === workerId && e.tipo === "ENTREGA" && e.statusAlerta === "ATIVO" && Number(e.qtd || 0) > 0
   );
+}
+
+function installLocalStyles() {
+  if (document.getElementById("return-epi-styles")) return;
+  const style = document.createElement("style");
+  style.id = "return-epi-styles";
+  style.textContent = `
+    .field-label{display:block;margin:0 0 6px;font-size:.78rem;font-weight:800;line-height:1.2;color:var(--text,#eef7fb)}
+    .field-help{display:block;margin:-1px 0 7px;font-size:.72rem;line-height:1.35;color:var(--muted,#9fb5c1)}
+    .delivery-item .field-row.two>div{min-width:0}
+    #return-epi-body .info-box{font-weight:700;line-height:1.45}
+    #return-epi-body .primary-btn{margin-top:4px}
+  `;
+  document.head.appendChild(style);
 }
 
 function openReturnModal() {
@@ -74,7 +82,6 @@ function openReturnModal() {
         <div id="return-epi-body" class="empty">A carregar EPIs ativos…</div>
       </div>
     </div>`;
-
   loadReturnItems();
 }
 
@@ -82,7 +89,7 @@ async function loadReturnItems() {
   const body = document.querySelector("#return-epi-body");
   if (!body) return;
   try {
-    const snap = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js").then(({ getDoc }) => getDoc(doc(db, "appdata", MAIN_DOC)));
+    const snap = await getDoc(doc(db, "appdata", MAIN_DOC));
     if (!snap.exists()) {
       body.innerHTML = `<div class="empty">Não foi possível carregar os dados.</div>`;
       return;
@@ -155,7 +162,7 @@ async function processReturn(form) {
       const data = snap.data();
       const worker = (data.trabalhadores || []).find(w => String(w.nome).trim() === String(workerName).trim());
       if (!worker) throw new Error("Trabalhador não encontrado.");
-      const event = (data.eventos || []).find(e => e.id === eventId && e.idTrab === worker.id && e.tipo === "ENTREGA" && e.statusAlerta === "ATIVO");
+      const event = (data.eventos || []).find(e => String(e.id) === String(eventId) && e.idTrab === worker.id && e.tipo === "ENTREGA" && e.statusAlerta === "ATIVO");
       if (!event) throw new Error("Este EPI já foi alterado ou devolvido. Atualize a página e tente novamente.");
       const available = Number(event.qtd || 0);
       if (qty > available) throw new Error(`Só existem ${available} unidade(s) desta entrega para devolver.`);
@@ -182,11 +189,12 @@ async function processReturn(form) {
         estado: obs ? `Devolvido · ${obs}` : "Devolvido",
         statusAlerta: "BAIXA",
         validade: "",
-        responsavel: document.body.dataset.operador || "Registo na aplicação"
+        responsavel: "Registo na aplicação"
       });
 
       transaction.set(ref, data);
     });
+
     document.querySelector("#modal-root").innerHTML = "";
     const toast = document.createElement("div");
     toast.className = "success-pop";
@@ -234,16 +242,12 @@ function enhanceDeliveryModal() {
 }
 
 document.addEventListener("click", ev => {
-  if (ev.target.closest("[data-return-close]")) {
-    document.querySelector("#modal-root").innerHTML = "";
-  }
+  if (ev.target.closest("[data-return-close]")) document.querySelector("#modal-root").innerHTML = "";
 });
 
 document.addEventListener("change", ev => {
   const form = ev.target.closest("[data-return-form]");
-  if (form && ev.target.name === "eventId") {
-    loadReturnItems();
-  }
+  if (form && ev.target.name === "eventId") loadReturnItems();
 });
 
 document.addEventListener("submit", ev => {
@@ -253,6 +257,7 @@ document.addEventListener("submit", ev => {
   }
 });
 
+installLocalStyles();
 const observer = new MutationObserver(() => {
   injectReturnButton();
   enhanceDeliveryModal();
