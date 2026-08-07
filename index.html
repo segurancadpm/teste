@@ -3,17 +3,20 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>DPM Solutions | Gestão de EPIs</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=20260807">
   </head>
   <body>
     <div id="app"></div>
     <div id="modal-root"></div>
     <script>
-      // Boot seguro: um erro no módulo principal nunca deve deixar a página branca.
+      // Boot seguro + cache busting: garante que a versão atual do app.js é carregada.
       window.addEventListener('error', (event) => {
         if (event.error) showBootError(event.error);
       });
@@ -38,7 +41,8 @@
           </section>`;
       }
 
-      import('./app.js').catch(showBootError);
+      // O parâmetro de versão impede que o navegador/GitHub Pages entregue um app.js antigo.
+      import('./app.js?v=20260807-warehouse-transfer').catch(showBootError);
     </script>
   </body>
 </html>
