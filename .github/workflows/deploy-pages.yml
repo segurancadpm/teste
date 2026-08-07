@@ -2,7 +2,8 @@ name: Deploy Ambiente Teste
 
 on:
   push:
-    branches: ["main"]
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -11,27 +12,39 @@ permissions:
   id-token: write
 
 concurrency:
-  group: "pages"
+  group: pages
   cancel-in-progress: true
 
 jobs:
   deploy:
+    name: Publicar versão atual da main
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout versão atual da main
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: Upload site artifact
+      - name: Confirmar ficheiros da versão publicada
+        run: |
+          echo "Commit publicado: $GITHUB_SHA"
+          test -f index.html
+          test -f app.js
+          grep -q "Gerir Armazéns" app.js
+          grep -q "Transferir Stock entre Armazéns" app.js
+          echo "Gestão de armazéns encontrada na versão a publicar."
+
+      - name: Upload versão atual do site
         uses: actions/upload-pages-artifact@v3
         with:
           path: .
 
-      - name: Deploy to GitHub Pages
+      - name: Publicar no GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
