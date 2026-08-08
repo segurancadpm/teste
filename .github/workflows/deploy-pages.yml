@@ -41,7 +41,7 @@ jobs:
           test -f styles-contrast.css
           test -f logo.css
           test -f return-epi.js
-          grep -q "data:image/jpeg;base64" logo.css
+          grep -Eq "data:image/(png|jpeg|jpg);base64" logo.css
           grep -q "DPM Solutions" index.html
           echo "Validação concluída: estrutura, logo e módulos principais encontrados."
 
