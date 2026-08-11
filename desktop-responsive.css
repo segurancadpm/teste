@@ -1,0 +1,90 @@
+/* DPM — adaptação automática para PC, tablet e telemóvel */
+
+/* Desktop: aproveitar a largura real do monitor */
+@media (min-width: 900px) {
+  #app {
+    width: min(100%, 1440px);
+    padding: 24px 32px 70px;
+  }
+
+  .app-top {
+    margin-bottom: 22px;
+  }
+
+  .screen-title h1 {
+    font-size: 1.55rem;
+  }
+
+  .section {
+    margin: 24px 0;
+  }
+
+  .section h2 {
+    font-size: 1.15rem;
+  }
+
+  .kpi-grid {
+    width: 100%;
+    max-width: none;
+    grid-template-columns: repeat(4, minmax(180px, 1fr));
+    gap: 14px;
+  }
+
+  .kpi {
+    padding: 16px;
+  }
+
+  .kpi strong {
+    font-size: 1.8rem;
+  }
+
+  /* Tabelas de gestão: usar toda a largura disponível no PC */
+  .table-wrap {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .table-wrap table {
+    width: 100%;
+    min-width: 1050px;
+  }
+
+  /* Formulários e cartões aproveitam melhor o espaço */
+  .field-row.two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .section-head {
+    margin-bottom: 12px;
+  }
+}
+
+/* Monitores grandes */
+@media (min-width: 1500px) {
+  #app {
+    width: min(100%, 1600px);
+    padding-left: 40px;
+    padding-right: 40px;
+  }
+}
+
+/* Tablet */
+@media (min-width: 601px) and (max-width: 899px) {
+  #app {
+    width: min(100%, 1000px);
+    padding: 20px 24px 70px;
+  }
+
+  .kpi-grid {
+    max-width: none;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Telemóvel: manter a experiência compacta */
+@media (max-width: 600px) {
+  #app {
+    width: 100%;
+    padding: 14px 12px 80px;
+  }
+}
