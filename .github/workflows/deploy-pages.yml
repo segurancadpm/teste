@@ -45,10 +45,11 @@ jobs:
           test -f budget-enhancement.js
           test -f budget-ui.css
           test -f budget-2026-import.js
+          test -f epi-catalog-sync.js
           echo "Ficheiros essenciais encontrados."
 
       - name: Preparar artefacto do site
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v3
         with:
           path: .
 
