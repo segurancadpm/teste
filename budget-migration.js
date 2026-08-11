@@ -45,4 +45,4 @@ async function migrate() {
   }, { merge: true });
 }
 
-migrate().catch(error => console.warn("Migração de orçamento não concluída:", error));
+await migrate();
