@@ -10,6 +10,8 @@ const BUDGET = doc(db, "appdata", "dpm_orcamento_2026_v2");
 let writingMain = false;
 let writingBudget = false;
 let started = false;
+let activeCatalog = new Set();
+let reloadTimer = null;
 
 const key = value => String(value || "").trim().toUpperCase().replace(/\s+/g, " ");
 const num = value => Number.isFinite(Number(value)) ? Number(value) : 0;
@@ -43,11 +45,32 @@ function ensureStock(data, epiName) {
   });
 }
 
+function updateDeliveryLists() {
+  document.querySelectorAll('select[name="epi"]').forEach(select => {
+    const current = select.value;
+    [...select.options].forEach(option => {
+      option.hidden = !activeCatalog.has(key(option.value));
+    });
+    if (!activeCatalog.has(key(current))) {
+      const first = [...select.options].find(option => !option.hidden);
+      if (first) select.value = first.value;
+    }
+  });
+}
+
+function updateCatalogFromMain(main) {
+  activeCatalog = new Set((Array.isArray(main.matriz) ? main.matriz : [])
+    .filter(epi => epi?.nome && epi.ativo !== false)
+    .map(epi => key(epi.nome)));
+  updateDeliveryLists();
+}
+
 async function syncMainToBudget() {
   if (writingMain || writingBudget) return;
   const [mainSnap, budgetSnap] = await Promise.all([getDoc(MAIN), getDoc(BUDGET)]);
   if (!mainSnap.exists()) return;
   const main = mainSnap.data();
+  updateCatalogFromMain(main);
   const budget = budgetSnap.exists() ? budgetSnap.data() : { year: 2026, rows: [] };
   const rows = Array.isArray(budget.rows) ? budget.rows.map(r => ({ ...r, ativo: r.ativo !== false })) : [];
   const existing = new Map(rows.filter(r => r.descricao).map(r => [r.catalogKey || key(r.descricao), r]));
@@ -128,6 +151,7 @@ async function syncBudgetToMain() {
     writingMain = true;
     try {
       await setDoc(MAIN, { ...main, matriz, updatedAt: Date.now() });
+      updateCatalogFromMain({ ...main, matriz });
       window.dispatchEvent(new CustomEvent("dpm:catalog-updated"));
     } finally {
       writingMain = false;
@@ -147,6 +171,17 @@ async function reconcile() {
 
 onSnapshot(MAIN, () => reconcile());
 onSnapshot(BUDGET, () => reconcile());
+
+window.addEventListener("dpm:catalog-updated", () => {
+  updateDeliveryLists();
+  if (document.querySelector(".budget-tabs")) {
+    clearTimeout(reloadTimer);
+    reloadTimer = setTimeout(() => location.reload(), 350);
+  }
+});
+
+const deliveryObserver = new MutationObserver(() => updateDeliveryLists());
+deliveryObserver.observe(document.body, { childList: true, subtree: true });
 
 started = true;
 reconcile();
