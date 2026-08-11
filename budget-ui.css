@@ -1,0 +1,49 @@
+/* Orçamento — navegação de módulo desktop/profissional */
+.budget-tabs{
+  display:flex;
+  align-items:stretch;
+  gap:0;
+  width:100%;
+  margin:0 0 22px;
+  padding:0;
+  border-bottom:1px solid rgba(148,163,184,.22);
+  background:transparent;
+}
+.budget-tab{
+  appearance:none;
+  border:0;
+  border-bottom:3px solid transparent;
+  background:transparent;
+  color:#8fa5b5;
+  min-height:52px;
+  padding:0 22px;
+  font:600 14px/1 'Outfit',system-ui,sans-serif;
+  cursor:pointer;
+  white-space:nowrap;
+  transition:.18s ease;
+}
+.budget-tab:hover{
+  color:#eaf5fa;
+  background:rgba(0,163,224,.06);
+}
+.budget-tab.active{
+  color:#00a3e0;
+  border-bottom-color:#00a3e0;
+  background:rgba(0,163,224,.08);
+}
+@media (min-width:900px){
+  .budget-tabs{
+    position:sticky;
+    top:0;
+    z-index:20;
+    padding-top:4px;
+    background:var(--bg,#101820);
+  }
+}
+@media (max-width:899px){
+  .budget-tabs{
+    overflow-x:auto;
+    scrollbar-width:thin;
+  }
+  .budget-tab{padding:0 16px;min-height:48px;font-size:13px}
+}
