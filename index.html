@@ -30,6 +30,7 @@
       }
       import('./app.js?v=20260811-stable')
         .then(() => import('./budget-management-v2.js?v=20260811-price-only'))
+        .then(() => import('./budget-layout-fix.js?v=20260811-1'))
         .then(() => import('./navigation-guard.js?v=20260811-1'))
         .catch(showBootError);
     </script>
