@@ -43,8 +43,15 @@ function priceMap(data) {
     if (value > 0 || !map.has(key)) map.set(key, value);
   };
   (Array.isArray(data.matriz) ? data.matriz : []).forEach(item => put(item.nome, item.preco));
-  const legacy = Array.isArray(data?.budget?.items) ? data.budget.items : [];
-  legacy.forEach(item => put(item.nome ?? item.name ?? item.epi ?? item.artigo, item.unitPrice ?? item.preco ?? item.price));
+  const legacy = data?.budget?.items;
+  if (Array.isArray(legacy)) {
+    legacy.forEach(item => put(item.nome ?? item.name ?? item.epi ?? item.artigo, item.unitPrice ?? item.preco ?? item.price));
+  } else if (legacy && typeof legacy === "object") {
+    Object.entries(legacy).forEach(([name, item]) => {
+      if (item && typeof item === "object") put(item.nome ?? item.name ?? name, item.unitPrice ?? item.preco ?? item.price);
+      else put(name, item);
+    });
+  }
   const planning = data?.budget?.management?.planning;
   if (planning && typeof planning === "object") Object.entries(planning).forEach(([name, item]) => put(name, item?.unitPrice));
   return map;
@@ -64,19 +71,11 @@ function deliveryFields(row) {
   };
 }
 
-function mergeDeliveries(data, firestoreRows) {
-  const rows = [];
-  const seen = new Set();
-  firestoreRows.forEach(r => {
-    const key = [r.worker_id ?? r.trabalhador_id ?? r.workerId, r.epi_type ?? r.epi ?? r.nomeEpi, r.delivery_date ?? r.data, r.qtd ?? r.quantidade ?? r.qty, r.created_at].map(norm).join("|");
-    seen.add(key);
-    rows.push(r);
-  });
-  (Array.isArray(data.eventos) ? data.eventos : []).filter(e => e.tipo === "ENTREGA").forEach(e => {
-    const key = [e.idTrab ?? e.worker_id, e.epi, e.data ?? e.delivery_date, e.qtd, e.id].map(norm).join("|");
-    if (!seen.has(key)) rows.push(e);
-  });
-  return rows;
+function deliveryRows(data, firestoreRows) {
+  // A coleção deliveries é a fonte oficial das entregas com assinatura.
+  // Os eventos antigos ficam como fallback apenas quando não há documentos.
+  if (firestoreRows.length) return firestoreRows;
+  return (Array.isArray(data.eventos) ? data.eventos : []).filter(e => e.tipo === "ENTREGA");
 }
 
 async function renderRealCost() {
@@ -90,7 +89,7 @@ async function renderRealCost() {
     const [data, snap] = await Promise.all([mainData(), getDocs(collection(db(), DELIVERY_COLLECTION))]);
     const workers = workerMap(data);
     const prices = priceMap(data);
-    const rows = mergeDeliveries(data, snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    const rows = deliveryRows(data, snap.docs.map(d => ({ id: d.id, ...d.data() })));
     const result = new Map();
     rows.forEach(raw => {
       const r = deliveryFields(raw);
