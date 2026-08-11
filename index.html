@@ -16,6 +16,9 @@
     <link rel="stylesheet" href="logo-boot.css?v=20260807-logo2">
     <link rel="stylesheet" href="desktop-responsive.css?v=20260811-1">
     <link rel="stylesheet" href="budget-management.css?v=20260811-clean1">
+    <style>
+      .budget-management-root[data-cost-loading="1"] .budget-view { visibility: hidden; }
+    </style>
   </head>
   <body>
     <div id="app"></div>
@@ -31,9 +34,8 @@
       import('./app.js?v=20260811-stable')
         .then(() => import('./budget-preload.js?v=20260811-preload1'))
         .then(() => import('./budget-management-clean.js?v=20260811-clean2'))
-        .then(() => import('./budget-cost-sync.js?v=20260811-cost1'))
-        .then(() => import('./budget-cost-family-fix.js?v=20260811-family3'))
-        .then(() => import('./budget-cost-employee-fix.js?v=20260811-employee2'))
+        .then(() => import('./budget-cost-family-fix.js?v=20260811-family4'))
+        .then(() => import('./budget-cost-final.js?v=20260811-costfinal1'))
         .catch(showBootError);
     </script>
   </body>
