@@ -1,42 +1,290 @@
 import { getApps, getApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-// Catálogo mestre. Não altera a página de Orçamento.
+// CATÁLOGO MESTRE — não altera a página Orçamento.
+// A lista abaixo representa os nomes-mãe usados recorrentemente pela DPM.
+// Modelos/variantes, preços, componentes e perigos são geridos dentro de cada nome-mãe.
 const MAIN_DOC = "dpm_epi_data_v1";
-export const FAMILIES = ["EPI", "Equipamento", "Ambiente"];
-export const CATEGORIES = {
+const FAMILIES = ["EPI", "Equipamento", "Ambiente"];
+const CATEGORIES = {
   EPI: ["Vestuário", "Calçado", "Cabeça", "Olhos/Face", "Audição", "Respiração", "Mãos", "Quedas", "Corpo", "Outros EPI"],
   Equipamento: ["Deteção/medição", "Sinalização", "Emergência", "Ferramentas", "Acessórios", "Outros equipamentos"],
   Ambiente: ["Resíduos", "Produtos químicos", "Absorção/derrames", "Manutenção", "Consumíveis", "Outros ambiente"]
 };
-const DEFAULT_CATEGORY = { EPI: "Outros EPI", Equipamento: "Outros equipamentos", Ambiente: "Outros ambiente" };
+
+const MASTER_EPI = [
+  ["POLOS MANGA CURTA", "Vestuário", []],
+  ["POLOS MANGA COMPRIDA", "Vestuário", []],
+  ["CALÇAS DE TRABALHO", "Vestuário", []],
+  ["PARKA IMPERMEÁVEL ALTA VISIBILIDADE", "Vestuário", ["Baixa visibilidade", "Chuva/intempérie", "Exposição ao frio"]],
+  ["CASACO POLAR", "Vestuário", ["Exposição ao frio"]],
+  ["COLETE DE ALTA VISIBILIDADE", "Vestuário", ["Baixa visibilidade"]],
+  ["SAPATO DE SEGURANÇA", "Calçado", ["Queda de objetos", "Esmagamento dos pés", "Perfuração", "Escorregamento"]],
+  ["CAPACETE + FRANCALETE", "Cabeça", ["Queda de objetos", "Impacto na cabeça"]],
+  ["OCULOS PROTEÇÃO", "Olhos/Face", ["Projeção de partículas", "Poeiras", "Salpicos"]],
+  ["PROTETORES AUDITIVOS", "Audição", ["Exposição ao ruído"]],
+  ["MASCARA PROTEÇÃO ABEK1 OU BLS", "Respiração", ["Inalação de poeiras", "Gases/vapores, conforme filtro", "Aerossóis/partículas, conforme filtro"]],
+  ["AVENTAL PROTEÇÃO", "Corpo", ["Salpicos", "Contacto com sujidade/contaminantes"]],
+  ["LUVAS PROTEÇÃO MECÂNICA", "Mãos", ["Cortes", "Abrasão", "Perfuração", "Riscos mecânicos"]],
+  ["LUVAS PROTEÇÃO QUÍMICA", "Mãos", ["Contacto com produtos químicos"]],
+  ["LUVAS NITRILO", "Mãos", ["Contacto com contaminantes", "Contacto com determinados produtos químicos, conforme modelo"]],
+  ["GALOCHAS", "Calçado", ["Humidade", "Salpicos", "Contacto com contaminantes, conforme modelo", "Escorregamento"]],
+  ["FATO PESCADOR", "Corpo", ["Humidade", "Salpicos", "Contacto com sujidade/contaminantes"]],
+  ["FATO IMPERMEÁVEL", "Corpo", ["Chuva/intempérie", "Humidade"]],
+  ["FATO TYVEK", "Corpo", ["Poeiras/partículas", "Salpicos", "Contacto com contaminantes, conforme modelo"]],
+  ["ARNÊS + CORDAS + ABS ENERGIA", "Quedas", ["Queda em altura"]]
+];
+
 let db = null;
-let cache = null;
-const getDb = () => { if (db) return db; if (!getApps().length) throw new Error("Firebase ainda não foi inicializado."); db = getFirestore(getApp()); return db; };
-const ref = () => doc(getDb(), "appdata", MAIN_DOC);
-const esc = v => String(v ?? "").replace(/[&<>\"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
-const n = v => { const s=String(v??"").trim().replace(/\s/g,""); if(!s)return 0; const x=Number(s.includes(",")?s.replace(/\./g,"").replace(",","."):s); return Number.isFinite(x)?x:0; };
-const family = v => FAMILIES.includes(v) ? v : "EPI";
-const category = (f,v) => CATEGORIES[f]?.includes(v) ? v : DEFAULT_CATEGORY[f];
-const money = v => n(v).toLocaleString("pt-PT",{style:"currency",currency:"EUR"});
-function inferCategory(item){const t=`${item?.tipo||""} ${item?.nome||""}`.toLocaleLowerCase("pt-PT");if(/calç|bota|sapato/.test(t))return "Calçado";if(/polo|casaco|calça|parka|colete|vestu/.test(t))return "Vestuário";if(/capacete|francalete/.test(t))return "Cabeça";if(/óculo|oculo|viseira/.test(t))return "Olhos/Face";if(/audit|auricular/.test(t))return "Audição";if(/máscara|mascara|filtro/.test(t))return "Respiração";if(/luva/.test(t))return "Mãos";if(/arnês|arnes|talabarte/.test(t))return "Quedas";return null;}
-function normalize(item){const f=family(item?.familia);const name=String(item?.nome||"Artigo sem nome").trim();return {...item,nome:name,familia:f,categoria:category(f,item?.categoria||inferCategory(item)),nomeMae:String(item?.nomeMae||name).trim(),modelo:String(item?.modelo||"").trim(),variante:String(item?.variante||"").trim(),tipoCadastro:item?.tipoCadastro==="Componente"?"Componente":"Artigo",preco:n(item?.preco),ativo:item?.ativo!==false,perigos:Array.isArray(item?.perigos)?item.perigos:String(item?.perigos||"").split(/[;\n]/).map(x=>x.trim()).filter(Boolean),componentes:Array.isArray(item?.componentes)?item.componentes:[]};}
-async function load(force=false){if(cache&&!force)return cache;const snap=await getDoc(ref());if(!snap.exists())throw new Error("Documento principal não encontrado.");const data=snap.data();data.matriz=(Array.isArray(data.matriz)?data.matriz:[]).map(normalize);cache=data;return data;}
-async function save(data){await setDoc(ref(),{matriz:data.matriz.map(x=>{const y={...x};delete y._catalogIndex;return y;})},{merge:true});cache=data;}
-function injectStyle(){if(document.getElementById("catalog-master-style"))return;const s=document.createElement("style");s.id="catalog-master-style";s.textContent=`
-.catalog-master-bg{position:fixed;inset:0;z-index:1000;background:rgba(3,10,15,.72);display:grid;place-items:center;padding:18px}.catalog-master{width:min(1200px,97vw);max-height:92vh;overflow:auto;background:#f7fbfd;color:#102c3d;border-radius:14px;padding:18px;box-shadow:0 24px 70px rgba(0,0,0,.3)}.catalog-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.catalog-head h2{margin:0 0 4px}.catalog-muted{color:#607783;font-size:.84rem}.catalog-tabs{display:flex;gap:7px;flex-wrap:wrap;margin:14px 0 10px}.catalog-tab,.catalog-btn{border:1px solid #b9cbd4;background:#fff;color:#17364b;border-radius:8px;padding:8px 12px;font-weight:800;cursor:pointer}.catalog-tab.active,.catalog-btn.primary{background:#00a3e0;color:#fff;border-color:#00a3e0}.catalog-btn.danger{color:#a51f17;border-color:#ddb2ae}.catalog-toolbar{display:grid;grid-template-columns:1fr 210px 210px;gap:8px;margin-bottom:10px}.catalog-form{display:grid;grid-template-columns:1.3fr 150px 170px 1fr 120px auto;gap:7px;padding:12px;background:#eef7fb;border:1px solid #d0e0e6;border-radius:10px;margin-bottom:12px}.catalog-master input,.catalog-master select,.catalog-master textarea{width:100%;box-sizing:border-box;border:1px solid #aec2cc;border-radius:7px;padding:8px;background:#fff;color:#122d3d}.catalog-table{width:100%;border-collapse:collapse;font-size:.82rem;min-width:950px}.catalog-table th,.catalog-table td{padding:8px;border-bottom:1px solid #d6e1e5;text-align:left;vertical-align:middle}.catalog-table th{text-transform:uppercase;font-size:.7rem;color:#4f6874}.catalog-edit{display:none;background:#edf6fa}.catalog-edit.open{display:table-row}.catalog-edit-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}.catalog-edit-grid label{font-size:.75rem;font-weight:700;color:#48616f}.catalog-edit-grid textarea{min-height:65px}.status-on{color:#137343;font-weight:800}.status-off{color:#a05b00;font-weight:800}@media(max-width:800px){.catalog-toolbar,.catalog-form,.catalog-edit-grid{grid-template-columns:1fr}}
-`;document.head.appendChild(s);}
-function configuredPrice(item){return n(item.preco)+(item.componentes||[]).reduce((sum,c)=>sum+n(c.preco),0);}
-function render(data,selectedFamily="Todos",selectedCategory="Todos",search="",selectedType="Todos"){
- injectStyle();document.querySelector(".catalog-master-bg")?.remove();
- const rows=data.matriz.filter(x=>(selectedFamily==="Todos"||x.familia===selectedFamily)&&(selectedCategory==="Todos"||x.categoria===selectedCategory)&&(selectedType==="Todos"||x.tipoCadastro===selectedType)&&(!search||`${x.nome} ${x.nomeMae} ${x.modelo} ${x.variante}`.toLocaleLowerCase("pt-PT").includes(search.toLocaleLowerCase("pt-PT"))));
- const cats=selectedFamily==="Todos"?[...new Set(FAMILIES.flatMap(f=>CATEGORIES[f]))]:CATEGORIES[selectedFamily];const counts=Object.fromEntries(FAMILIES.map(f=>[f,data.matriz.filter(x=>x.familia===f).length]));
- const bg=document.createElement("div");bg.className="catalog-master-bg";bg.innerHTML=`<div class="catalog-master"><div class="catalog-head"><div><h2>Catálogo mestre</h2><div class="catalog-muted">Família → Categoria → Nome mãe → Modelo/variante → Componentes e perigos.</div></div><button class="catalog-btn" data-close>Fechar</button></div><div class="catalog-tabs"><button class="catalog-tab ${selectedFamily==="Todos"?"active":""}" data-family="Todos">Todos (${data.matriz.length})</button>${FAMILIES.map(f=>`<button class="catalog-tab ${selectedFamily===f?"active":""}" data-family="${f}">${f} (${counts[f]})</button>`).join("")}</div><div class="catalog-toolbar"><input data-search value="${esc(search)}" placeholder="Pesquisar artigo / nome mãe / modelo"><select data-category><option>Todos</option>${cats.map(c=>`<option ${c===selectedCategory?"selected":""}>${esc(c)}</option>`).join("")}</select><select data-type><option value="Todos">Todos</option><option value="Artigo" ${selectedType==="Artigo"?"selected":""}>Artigos</option><option value="Componente" ${selectedType==="Componente"?"selected":""}>Componentes</option></select></div><form class="catalog-form" data-add><input name="nome" required placeholder="Nome do artigo"><select name="familia">${FAMILIES.map(f=>`<option>${f}</option>`).join("")}</select><select name="categoria"></select><input name="nomeMae" placeholder="Nome mãe (ex.: Calçado de segurança)"><input name="preco" type="number" min="0" step="0.01" placeholder="Preço base €"><button class="catalog-btn primary">+ Adicionar</button><input name="modelo" placeholder="Modelo / variante"><input name="perigos" style="grid-column:1/-1" placeholder="Perigos/proteções separados por ;"></form><div style="overflow:auto"><table class="catalog-table"><thead><tr><th>Artigo</th><th>Família</th><th>Categoria</th><th>Nome mãe</th><th>Modelo</th><th>Preço base</th><th>Estado</th><th></th></tr></thead><tbody>${rows.length?rows.map(item=>{const i=data.matriz.indexOf(item);return `<tr data-i="${i}"><td><strong>${esc(item.nome)}</strong>${item.tipoCadastro==="Componente"?"<small> · Componente</small>":""}</td><td>${item.familia}</td><td>${esc(item.categoria)}</td><td>${esc(item.nomeMae)}</td><td>${esc([item.modelo,item.variante].filter(Boolean).join(" / "))}</td><td>${money(item.preco)}</td><td class="${item.ativo?"status-on":"status-off"}">${item.ativo?"Ativo":"Inativo"}</td><td><button class="catalog-btn" data-edit>Editar</button></td></tr><tr class="catalog-edit" data-edit-row="${i}"><td colspan="8"><div class="catalog-edit-grid"><label>Família<select data-f>${FAMILIES.map(f=>`<option ${f===item.familia?"selected":""}>${f}</option>`).join("")}</select></label><label>Categoria<select data-c>${CATEGORIES[item.familia].map(c=>`<option ${c===item.categoria?"selected":""}>${esc(c)}</option>`).join("")}</select></label><label>Nome mãe<input data-p value="${esc(item.nomeMae)}"></label><label>Modelo<input data-m value="${esc(item.modelo)}"></label><label>Variante<input data-v value="${esc(item.variante)}"></label><label>Preço base €<input data-price type="number" min="0" step="0.01" value="${item.preco}"></label><label>Tipo<select data-t><option ${item.tipoCadastro==="Artigo"?"selected":""}>Artigo</option><option ${item.tipoCadastro==="Componente"?"selected":""}>Componente</option></select></label><label>Estado<select data-a><option value="true" ${item.ativo?"selected":""}>Ativo</option><option value="false" ${!item.ativo?"selected":""}>Inativo</option></select></label><label>Perigos / proteções<textarea data-h>${esc(item.perigos.join("; "))}</textarea></label><label style="grid-column:1/-1">Componentes (Nome | Preço, um por linha)<textarea data-comp>${esc((item.componentes||[]).map(c=>`${c.nome} | ${n(c.preco).toFixed(2)}`).join("\n"))}</textarea></label><div style="grid-column:1/-1"><button class="catalog-btn primary" data-save>Guardar</button></div></div></td></tr>`;}).join(""):`<tr><td colspan="8">Não existem artigos nesta seleção.</td></tr>`}</tbody></table></div><p class="catalog-muted" style="margin-top:12px"><strong>Histórico:</strong> artigos já usados não são apagados fisicamente; ficam Inativos.</p></div>`;
- document.body.appendChild(bg);const form=bg.querySelector("[data-add]");const fillCats=()=>{form.categoria.innerHTML=CATEGORIES[form.familia.value].map(c=>`<option>${esc(c)}</option>`).join("")};fillCats();form.familia.addEventListener("change",fillCats);
- bg.addEventListener("click",async e=>{if(e.target===bg||e.target.closest("[data-close]")){bg.remove();return;}const fb=e.target.closest("[data-family]");if(fb){render(data,fb.dataset.family,"Todos","","Todos");return;}const eb=e.target.closest("[data-edit]");if(eb){eb.closest("tr")?.nextElementSibling?.classList.toggle("open");return;}const saveBtn=e.target.closest("[data-save]");if(!saveBtn)return;const row=saveBtn.closest("[data-edit-row]");const i=Number(row.dataset.editRow);const item=data.matriz[i];if(!item)return;item.familia=family(row.querySelector("[data-f]").value);item.categoria=category(item.familia,row.querySelector("[data-c]").value);item.nomeMae=row.querySelector("[data-p]").value.trim()||item.nome;item.modelo=row.querySelector("[data-m]").value.trim();item.variante=row.querySelector("[data-v]").value.trim();item.preco=n(row.querySelector("[data-price]").value);item.tipoCadastro=row.querySelector("[data-t]").value;item.ativo=row.querySelector("[data-a]").value!=="false";item.perigos=row.querySelector("[data-h]").value.split(/[;\n]/).map(x=>x.trim()).filter(Boolean);item.componentes=row.querySelector("[data-comp]").value.split("\n").map(line=>{const [name,price]=line.split("|");return{name:String(name||"").trim(),preco:n(price)};}).filter(x=>x.name);try{await save(data);render(data,selectedFamily,selectedCategory,search,selectedType);}catch(err){alert(`Não foi possível guardar: ${err?.message||err}`);}});
- form.addEventListener("submit",async e=>{e.preventDefault();const fd=new FormData(form);const name=String(fd.get("nome")||"").trim();if(!name)return;if(data.matriz.some(x=>x.nome.toLocaleLowerCase("pt-PT")===name.toLocaleLowerCase("pt-PT"))){alert("Já existe um artigo com esse nome.");return;}const item=normalize({nome:name,familia:fd.get("familia"),categoria:fd.get("categoria"),nomeMae:fd.get("nomeMae")||name,modelo:fd.get("modelo"),preco:n(fd.get("preco")),perigos:fd.get("perigos")});data.matriz.push(item);try{await save(data);render(data,item.familia,item.categoria);}catch(err){data.matriz.pop();alert(`Não foi possível adicionar: ${err?.message||err}`);}});
- const searchBox=bg.querySelector("[data-search]");searchBox.addEventListener("input",()=>{clearTimeout(searchBox._timer);searchBox._timer=setTimeout(()=>render(data,selectedFamily,bg.querySelector("[data-category]").value,searchBox.value,bg.querySelector("[data-type]").value),220);});bg.querySelector("[data-category]").addEventListener("change",e=>render(data,selectedFamily,e.target.value,search,bg.querySelector("[data-type]").value));bg.querySelector("[data-type]").addEventListener("change",e=>render(data,selectedFamily,bg.querySelector("[data-category]").value,search,e.target.value));
+let opened = false;
+let catalog = null;
+
+const getDb = () => {
+  if (db) return db;
+  if (!getApps().length) throw new Error("Firebase ainda não foi inicializado.");
+  db = getFirestore(getApp());
+  return db;
+};
+const mainRef = () => doc(getDb(), "appdata", MAIN_DOC);
+const esc = v => String(v ?? "").replace(/[&<>\"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;" }[c]));
+const money = v => Number(v || 0).toLocaleString("pt-PT", { style:"currency", currency:"EUR" });
+const key = v => String(v || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
+const splitList = v => String(v || "").split(/[;\n]/).map(x => x.trim()).filter(Boolean);
+const categoryOk = (family, category) => CATEGORIES[family]?.includes(category) ? category : (CATEGORIES[family]?.[0] || "Outros EPI");
+
+function styles() {
+  if (document.getElementById("catalog-master-v2-style")) return;
+  const s = document.createElement("style");
+  s.id = "catalog-master-v2-style";
+  s.textContent = `
+    .dpm-cat-backdrop{position:fixed;inset:0;z-index:3000;background:rgba(4,12,18,.68);display:grid;place-items:center;padding:18px}
+    .dpm-cat-modal{width:min(1180px,97vw);max-height:92vh;overflow:auto;background:#f7fbfd;color:#123047;border:1px solid #c8d7df;border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,.32);padding:18px;font-family:Outfit,Arial,sans-serif}
+    .dpm-cat-head{display:flex;justify-content:space-between;gap:15px;align-items:flex-start}.dpm-cat-head h2{margin:0 0 4px;font-size:20px}.dpm-cat-muted{font-size:13px;color:#617783}
+    .dpm-cat-tabs{display:flex;gap:7px;flex-wrap:wrap;margin:16px 0 10px}.dpm-cat-tab{border:1px solid #b9ccd5;background:#fff;color:#17364b;border-radius:8px;padding:8px 13px;font-weight:800;cursor:pointer}.dpm-cat-tab.active{background:#00a3e0;color:#fff;border-color:#00a3e0}
+    .dpm-cat-search{width:100%;box-sizing:border-box;border:1px solid #aebfc8;border-radius:8px;padding:10px;margin-bottom:12px;background:#fff}.dpm-cat-grid{display:grid;grid-template-columns:1fr 170px 180px;gap:8px;margin-bottom:12px}
+    .dpm-cat-list{border:1px solid #cbd9df;border-radius:10px;overflow:hidden;background:#fff}.dpm-cat-row{display:grid;grid-template-columns:1.6fr 150px 1fr 90px;gap:12px;padding:11px 13px;border-bottom:1px solid #dce5e9;align-items:center}.dpm-cat-row:last-child{border-bottom:0}.dpm-cat-row.head{font-size:11px;text-transform:uppercase;font-weight:800;color:#55707d;background:#f2f7f9}.dpm-cat-row strong{display:block}.dpm-cat-btn{border:1px solid #b9ccd5;background:#fff;color:#17364b;border-radius:7px;padding:7px 10px;font-weight:800;cursor:pointer}.dpm-cat-btn.primary{background:#00a3e0;border-color:#00a3e0;color:#fff}.dpm-cat-btn.danger{color:#a52218}.dpm-cat-edit{display:none;grid-column:1/-1;background:#edf7fb;border-top:1px solid #d2e1e7;padding:12px}.dpm-cat-edit.open{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}.dpm-cat-edit label{font-size:12px;font-weight:800;color:#4b6672}.dpm-cat-edit input,.dpm-cat-edit select,.dpm-cat-edit textarea,.dpm-cat-add input,.dpm-cat-add select{width:100%;box-sizing:border-box;border:1px solid #aec2cc;border-radius:7px;padding:8px;background:#fff;color:#122d3d;margin-top:4px}.dpm-cat-edit textarea{min-height:70px}.dpm-cat-full{grid-column:1/-1}.dpm-cat-add{display:grid;grid-template-columns:1.3fr 150px 170px 1fr 120px auto;gap:7px;padding:12px;background:#eef7fb;border:1px solid #d0e0e6;border-radius:10px;margin-bottom:12px}.dpm-cat-small{font-size:12px;color:#5c7380}.dpm-cat-models{margin-top:8px;font-size:12px;color:#4d6875}.dpm-cat-chip{display:inline-block;border:1px solid #c9d8df;background:#f7fafb;border-radius:20px;padding:3px 8px;margin:2px 3px 2px 0}.dpm-cat-danger{color:#8d3e00}.dpm-cat-management{display:inline-flex;margin-left:8px;vertical-align:middle}
+    @media(max-width:850px){.dpm-cat-grid,.dpm-cat-add,.dpm-cat-edit.open{grid-template-columns:1fr}.dpm-cat-row{grid-template-columns:1fr}.dpm-cat-row.head{display:none}.dpm-cat-edit{grid-column:1}.dpm-cat-management{margin-left:0;margin-top:8px}}
+  `;
+  document.head.appendChild(s);
 }
-function attach(){const root=document.querySelector(".budget-management-root");const form=root?.querySelector("#purchase-family");if(!root||!form||root.querySelector("[data-open-catalog-master]"))return;const h=form.closest(".budget-card")?.querySelector("h3");if(!h)return;const b=document.createElement("button");b.type="button";b.className="catalog-btn";b.dataset.openCatalogMaster="1";b.textContent="⚙ Gerir catálogo";b.style.marginLeft="10px";h.parentElement.appendChild(b);b.addEventListener("click",async()=>{try{render(await load(true));}catch(e){alert(`Não foi possível abrir o catálogo: ${e?.message||e}`);}});}
-let last="";setInterval(()=>{const root=document.querySelector(".budget-management-root");const active=root?.querySelector('[data-budget-tab="compras"].active');const form=root?.querySelector("#purchase-family");const sig=`${!!active}|${!!form}`;if(sig!==last){last=sig;if(active&&form)attach();}},400);
-export { load, normalize, configuredPrice };
+
+async function loadMain() {
+  const snap = await getDoc(mainRef());
+  if (!snap.exists()) throw new Error("Documento principal de dados não encontrado.");
+  const data = snap.data();
+  if (!Array.isArray(data.matriz)) data.matriz = [];
+  return data;
+}
+
+function buildCatalog(data) {
+  const existing = Array.isArray(data.catalogMaster) ? data.catalogMaster : [];
+  const byKey = new Map(existing.map(x => [key(x.nome), x]));
+  for (const [nome, categoria, perigos] of MASTER_EPI) {
+    const k = key(nome);
+    if (!byKey.has(k)) {
+      const match = data.matriz.find(x => key(x?.nome) === k || key(x?.nomeMae) === k);
+      byKey.set(k, {
+        id: `epi-${k.toLowerCase().replace(/ /g,"-")}`,
+        nome,
+        familia: "EPI",
+        categoria,
+        perigos: perigos.slice(),
+        preco: Number(match?.preco || 0),
+        ativo: true,
+        modelos: []
+      });
+    } else {
+      const item = byKey.get(k);
+      item.familia = item.familia || "EPI";
+      item.categoria = categoryOk(item.familia, item.categoria || categoria);
+      item.perigos = Array.isArray(item.perigos) && item.perigos.length ? item.perigos : perigos.slice();
+      item.modelos = Array.isArray(item.modelos) ? item.modelos : [];
+      item.ativo = item.ativo !== false;
+      item.preco = Number(item.preco || 0);
+    }
+  }
+  const all = [...byKey.values()];
+  return all;
+}
+
+async function saveCatalog(data, items) {
+  await setDoc(mainRef(), { catalogMaster: items }, { merge:true });
+  // Liga os nomes-mãe ao catálogo existente sem apagar histórico.
+  const matriz = Array.isArray(data.matriz) ? data.matriz.map(x => ({...x})) : [];
+  let changed = false;
+  for (const item of items) {
+    const matches = matriz.filter(x => key(x?.nome) === key(item.nome) || key(x?.nomeMae) === key(item.nome));
+    for (const m of matches) {
+      if (!m.familia || m.familia !== item.familia) { m.familia = item.familia; changed = true; }
+      if (!m.categoria) { m.categoria = item.categoria; changed = true; }
+      if (!m.nomeMae) { m.nomeMae = item.nome; changed = true; }
+      if (!Array.isArray(m.perigos) || !m.perigos.length) { m.perigos = item.perigos.slice(); changed = true; }
+    }
+  }
+  if (changed) await setDoc(mainRef(), { matriz }, { merge:true });
+  data.matriz = matriz;
+  data.catalogMaster = items;
+  catalog = items;
+}
+
+function seedPurchaseList(items) {
+  const root = document.querySelector(".budget-management-root");
+  const familySelect = root?.querySelector("#purchase-family");
+  const epiSelect = root?.querySelector("#purchase-epi");
+  if (!root || !familySelect || !epiSelect || familySelect.value !== "EPI") return;
+  const current = epiSelect.value;
+  const active = items.filter(x => x.familia === "EPI" && x.ativo !== false);
+  epiSelect.innerHTML = `<option value="">Selecionar EPI</option>` + active.map(x => `<option value="${esc(x.nome)}">${esc(x.nome)}</option>`).join("");
+  if (active.some(x => x.nome === current)) epiSelect.value = current;
+}
+
+function syncPurchaseUI() {
+  if (!catalog) return;
+  seedPurchaseList(catalog);
+  const root = document.querySelector(".budget-management-root");
+  const familySelect = root?.querySelector("#purchase-family");
+  if (familySelect && !familySelect.dataset.catalogMasterBound) {
+    familySelect.dataset.catalogMasterBound = "1";
+    familySelect.addEventListener("change", () => setTimeout(() => seedPurchaseList(catalog), 0));
+  }
+}
+
+function addManagementButton() {
+  const root = document.querySelector(".budget-management-root");
+  if (!root || !root.querySelector("#purchase-family") || root.querySelector("[data-open-catalog-master]")) return;
+  const heading = root.querySelector(".budget-view .budget-card h3") || root.querySelector(".budget-view h3");
+  if (!heading) return;
+  const wrap = document.createElement("span");
+  wrap.className = "dpm-cat-management";
+  wrap.innerHTML = `<button type="button" class="dpm-cat-btn" data-open-catalog-master>⚙ Gerir catálogo</button>`;
+  heading.parentElement?.appendChild(wrap);
+  wrap.querySelector("button").addEventListener("click", openCatalog);
+}
+
+function renderEditor(item, index, list, data, container) {
+  const models = Array.isArray(item.modelos) ? item.modelos : [];
+  const modelText = models.map(m => `${m.nome || ""} | ${Number(m.preco || 0).toFixed(2)} | ${m.referencia || ""}`).join("\n");
+  const edit = document.createElement("div");
+  edit.className = "dpm-cat-edit open";
+  edit.innerHTML = `
+    <label>Família<select data-family>${FAMILIES.map(f=>`<option ${f===item.familia?"selected":""}>${f}</option>`).join("")}</select></label>
+    <label>Categoria<select data-category>${CATEGORIES[item.familia].map(c=>`<option ${c===item.categoria?"selected":""}>${esc(c)}</option>`).join("")}</select></label>
+    <label>Preço base (€)<input data-price type="number" min="0" step="0.01" value="${Number(item.preco||0)}"></label>
+    <label class="dpm-cat-full">Nome mãe<input data-name value="${esc(item.nome)}"></label>
+    <label class="dpm-cat-full">Perigos / proteções (preenchidos automaticamente, mas editáveis)<textarea data-hazards>${esc((item.perigos||[]).join("; "))}</textarea></label>
+    <label class="dpm-cat-full">Modelos / variantes — Nome | Preço | Referência<textarea data-models placeholder="Ex.: Dortmund | 58,20 | REF123">${esc(modelText)}</textarea></label>
+    <label>Estado<select data-active><option value="true" ${item.ativo!==false?"selected":""}>Ativo</option><option value="false" ${item.ativo===false?"selected":""}>Inativo</option></select></label>
+    <div style="display:flex;gap:7px;align-items:end"><button class="dpm-cat-btn primary" data-save>Guardar</button><button class="dpm-cat-btn danger" data-delete>Eliminar</button></div>
+    <div class="dpm-cat-small dpm-cat-full">Os modelos ficam dentro do nome-mãe. O histórico existente não é apagado.</div>`;
+  container.appendChild(edit);
+
+  edit.querySelector("[data-family]").addEventListener("change", e => {
+    const f = e.target.value;
+    edit.querySelector("[data-category]").innerHTML = CATEGORIES[f].map(c=>`<option>${esc(c)}</option>`).join("");
+  });
+  edit.querySelector("[data-save]").addEventListener("click", async () => {
+    const f = edit.querySelector("[data-family]").value;
+    const name = edit.querySelector("[data-name]").value.trim();
+    if (!name) return alert("O nome-mãe é obrigatório.");
+    item.familia = f;
+    item.categoria = categoryOk(f, edit.querySelector("[data-category]").value);
+    item.nome = name;
+    item.preco = Number(edit.querySelector("[data-price]").value || 0);
+    item.perigos = splitList(edit.querySelector("[data-hazards]").value);
+    item.ativo = edit.querySelector("[data-active").value !== "false";
+    item.modelos = splitList(edit.querySelector("[data-models]").value).map(line => {
+      const p = line.split("|").map(x=>x.trim());
+      return { nome:p[0] || "", preco:Number(String(p[1]||"0").replace(",",".")) || 0, referencia:p[2] || "" };
+    }).filter(x=>x.nome);
+    try { await saveCatalog(data, list); container.remove(); renderList(data, list); } catch(e) { alert(`Não foi possível guardar: ${e?.message || e}`); }
+  });
+  edit.querySelector("[data-delete]").addEventListener("click", async () => {
+    if (!confirm(`Eliminar "${item.nome}" do catálogo? Se já tiver histórico, será mantido como inativo.`)) return;
+    item.ativo = false;
+    try { await saveCatalog(data, list); container.remove(); renderList(data, list); } catch(e) { alert(`Não foi possível alterar o estado: ${e?.message || e}`); }
+  });
+}
+
+function renderList(data, list, filter="Todos", search="") {
+  const area = document.querySelector(".dpm-cat-list");
+  if (!area) return;
+  const rows = list.filter(x => (filter === "Todos" || x.familia === filter) && (!search || `${x.nome} ${(x.modelos||[]).map(m=>m.nome).join(" ")}`.toLocaleLowerCase("pt-PT").includes(search.toLocaleLowerCase("pt-PT"))));
+  area.innerHTML = `<div class="dpm-cat-row head"><div>Nome-mãe</div><div>Família / categoria</div><div>Perigos automáticos</div><div></div></div>`;
+  if (!rows.length) { area.innerHTML += `<div class="dpm-cat-row"><div>Não existem artigos nesta seleção.</div></div>`; return; }
+  rows.forEach(item => {
+    const row = document.createElement("div"); row.className = "dpm-cat-row";
+    const chips = (item.perigos||[]).slice(0,4).map(p=>`<span class="dpm-cat-chip dpm-cat-danger">${esc(p)}</span>`).join("");
+    const models = (item.modelos||[]).map(m=>m.nome).filter(Boolean);
+    row.innerHTML = `<div><strong>${esc(item.nome)}</strong><div class="dpm-cat-small">${models.length ? `${models.length} modelo(s): ${esc(models.join(", "))}` : "Sem modelo definido"}</div></div><div>${esc(item.familia)}<br><span class="dpm-cat-small">${esc(item.categoria)}</span></div><div>${chips || `<span class="dpm-cat-small">Sem perigo específico definido</span>`}</div><div><button class="dpm-cat-btn" data-edit>Editar</button></div>`;
+    area.appendChild(row);
+    row.querySelector("[data-edit]").addEventListener("click", () => {
+      if (row.nextElementSibling?.classList.contains("dpm-cat-edit")) { row.nextElementSibling.remove(); return; }
+      renderEditor(item, list.indexOf(item), list, data, row);
+    });
+  });
+}
+
+function openCatalog() {
+  if (opened) return;
+  opened = true;
+  styles();
+  loadMain().then(data => {
+    const list = buildCatalog(data);
+    catalog = list;
+    const bg = document.createElement("div");
+    bg.className = "dpm-cat-backdrop";
+    bg.innerHTML = `<div class="dpm-cat-modal"><div class="dpm-cat-head"><div><h2>Catálogo mestre de EPI</h2><div class="dpm-cat-muted">Esta é a lista principal que usas recorrentemente. Dentro de cada nome-mãe podes gerir modelos, preços e perigos.</div></div><button class="dpm-cat-btn" data-close>Fechar</button></div><div class="dpm-cat-tabs"><button class="dpm-cat-tab active" data-filter="Todos">Todos (${list.length})</button>${FAMILIES.map(f=>`<button class="dpm-cat-tab" data-filter="${f}">${f} (${list.filter(x=>x.familia===f).length})</button>`).join("")}</div><div class="dpm-cat-grid"><input class="dpm-cat-search" style="margin:0" data-search placeholder="Pesquisar nome-mãe ou modelo"><select class="dpm-cat-search" style="margin:0" data-filter-category><option>Todos</option>${CATEGORIES.EPI.map(c=>`<option>${esc(c)}</option>`).join("")}</select><button class="dpm-cat-btn primary" data-add-new>+ Adicionar nome-mãe</button></div><div class="dpm-cat-add" data-add-form style="display:none"><input data-new-name placeholder="Nome principal (ex.: Calçado de segurança)"><select data-new-family>${FAMILIES.map(f=>`<option>${f}</option>`).join("")}</select><select data-new-category></select><input data-new-price type="number" min="0" step="0.01" placeholder="Preço base €"><button class="dpm-cat-btn primary" data-create>Criar</button><button class="dpm-cat-btn" data-cancel>Cancelar</button><input class="dpm-cat-full" data-new-hazards placeholder="Perigos/proteções; deixar vazio para preencher automaticamente"></div><div class="dpm-cat-list"></div><p class="dpm-cat-muted" style="margin:12px 0 0">Os perigos predefinidos são sugestões de catálogo e ficam sempre editáveis. Artigos com histórico não são apagados fisicamente; são desativados.</p></div>`;
+    document.body.appendChild(bg);
+
+    const catSelect = bg.querySelector("[data-filter-category]");
+    const fillNewCats = () => { const f=bg.querySelector("[data-new-family]").value; bg.querySelector("[data-new-category]").innerHTML=CATEGORIES[f].map(c=>`<option>${esc(c)}</option>`).join(""); };
+    fillNewCats();
+    bg.querySelector("[data-new-family]").addEventListener("change", fillNewCats);
+    bg.querySelector("[data-add-new]").addEventListener("click", () => { bg.querySelector("[data-add-form]").style.display="grid"; });
+    bg.querySelector("[data-cancel]").addEventListener("click", () => { bg.querySelector("[data-add-form]").style.display="none"; });
+    bg.querySelector("[data-close]").addEventListener("click", () => { bg.remove(); opened=false; });
+    bg.addEventListener("click", e => { if(e.target===bg){bg.remove();opened=false;} });
+
+    let filter = "Todos";
+    const doRender = () => renderList(data,list,filter,bg.querySelector("[data-search]").value);
+    bg.querySelectorAll("[data-filter]").forEach(btn => btn.addEventListener("click", () => {
+      filter=btn.dataset.filter;
+      bg.querySelectorAll("[data-filter]").forEach(b=>b.classList.toggle("active",b===btn));
+      doRender();
+    }));
+    bg.querySelector("[data-search]").addEventListener("input", doRender);
+    catSelect.addEventListener("change", doRender);
+    bg.querySelector("[data-create]").addEventListener("click", async () => {
+      const name=bg.querySelector("[data-new-name]").value.trim();
+      if(!name)return alert("Indica o nome principal.");
+      if(list.some(x=>key(x.nome)===key(name)))return alert("Já existe esse nome-mãe no catálogo.");
+      const f=bg.querySelector("[data-new-family]").value;
+      const c=categoryOk(f,bg.querySelector("[data-new-category]").value);
+      let hazards=splitList(bg.querySelector("[data-new-hazards]").value);
+      if(!hazards && f==="EPI") hazards=[];
+      list.push({id:`custom-${Date.now()}`,nome:name,familia:f,categoria:c,perigos:hazards,preco:Number(bg.querySelector("[data-new-price]").value||0),ativo:true,modelos:[]});
+      try { await saveCatalog(data,list); bg.querySelector("[data-add-form]").style.display="none"; doRender(); } catch(e) { list.pop(); alert(`Não foi possível criar: ${e?.message||e}`); }
+    });
+    renderList(data,list);
+  }).catch(e => { alert(`Não foi possível carregar o catálogo: ${e?.message || e}`); opened=false; });
+}
+
+async function bootCatalog() {
+  try {
+    const data = await loadMain();
+    catalog = buildCatalog(data);
+    // Apenas garante que a nova lista existe no documento; não substitui a matriz nem o Orçamento.
+    if (!Array.isArray(data.catalogMaster)) await setDoc(mainRef(), { catalogMaster: catalog }, { merge:true });
+    syncPurchaseUI();
+    addManagementButton();
+  } catch (e) {
+    console.warn("Catálogo mestre não inicializado:", e);
+  }
+}
+
+const observer = new MutationObserver(() => { syncPurchaseUI(); addManagementButton(); });
+observer.observe(document.documentElement, { childList:true, subtree:true });
+
+// Recarrega os dados quando o utilizador abre Compras, sem tocar no Orçamento.
+document.addEventListener("click", () => setTimeout(() => { syncPurchaseUI(); addManagementButton(); }, 50));
+bootCatalog();
