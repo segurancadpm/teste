@@ -15,6 +15,7 @@
     <link rel="stylesheet" href="logo.css?v=20260807-logo2">
     <link rel="stylesheet" href="logo-boot.css?v=20260807-logo2">
     <link rel="stylesheet" href="desktop-responsive.css?v=20260811-1">
+    <link rel="stylesheet" href="budget-tabs.css?v=20260811-5">
   </head>
   <body>
     <div id="app"></div>
@@ -28,6 +29,7 @@
         app.innerHTML = `<section style="min-height:100vh;display:grid;place-items:center;padding:24px;font-family:system-ui,sans-serif;background:#101820;color:#eef7fb"><div style="width:min(100%,520px);padding:24px;border:1px solid #334653;border-radius:14px;background:#172532"><div class="boot-logo" aria-label="DPM Solutions"></div><h1 style="font-size:20px;margin:0 0 10px">A aplicação não conseguiu iniciar</h1><p style="color:#9fb5c1;line-height:1.5">A página foi carregada, mas ocorreu um erro ao iniciar a aplicação.</p><pre style="white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;border-radius:8px;background:#0b1116;color:#ffb020;font-size:13px">${message.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}</pre><button onclick="location.reload()" style="min-height:42px;border:0;border-radius:8px;padding:0 16px;background:#00a3e0;color:#00131d;font-weight:700;cursor:pointer">Recarregar aplicação</button></div></section>`;
       }
       import('./app.js?v=20260811-stable')
+        .then(() => import('./budget-tabs.js?v=20260811-5'))
         .catch(showBootError);
     </script>
   </body>
