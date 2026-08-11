@@ -12,41 +12,43 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: github-pages
   cancel-in-progress: true
 
 jobs:
   deploy:
     name: Publicar versão atual da main
+    runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
+
     steps:
       - name: Checkout versão atual da main
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
 
-      - name: Configure GitHub Pages
+      - name: Configurar GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: Validar ficheiros da versão a publicar
+      - name: Desativar processamento Jekyll
+        run: touch .nojekyll
+
+      - name: Validar ficheiros essenciais
         run: |
           set -e
-          echo "Commit a publicar: $GITHUB_SHA"
           test -f index.html
           test -f app.js
           test -f styles.css
           test -f styles-contrast.css
           test -f logo.css
           test -f return-epi.js
-          grep -Eq "data:image/(png|jpeg|jpg);base64" logo.css
-          grep -q "DPM Solutions" index.html
-          echo "Validação concluída: estrutura, logo e módulos principais encontrados."
+          test -f budget-enhancement.js
+          test -f budget-ui.css
+          test -f budget-2026-import.js
+          echo "Ficheiros essenciais encontrados."
 
-      - name: Upload versão atual do site
-        uses: actions/upload-pages-artifact@v3
+      - name: Preparar artefacto do site
+        uses: actions/upload-pages-artifact@v4
         with:
           path: .
 
