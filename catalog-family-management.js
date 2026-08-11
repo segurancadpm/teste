@@ -1,234 +1,42 @@
 import { getApps, getApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-// Catálogo central de artigos e famílias.
-// As famílias de negócio são fixas: EPI, Equipamento e Ambiente.
-// Os artigos ficam na mesma matriz principal para que Orçamento, Compras,
-// Stocks e Entregas possam reutilizar a mesma lista.
+// Catálogo mestre. Não altera a página de Orçamento.
 const MAIN_DOC = "dpm_epi_data_v1";
-const FAMILIES = ["EPI", "Equipamento", "Ambiente"];
-const DEFAULT_FAMILY = "EPI";
+export const FAMILIES = ["EPI", "Equipamento", "Ambiente"];
+export const CATEGORIES = {
+  EPI: ["Vestuário", "Calçado", "Cabeça", "Olhos/Face", "Audição", "Respiração", "Mãos", "Quedas", "Corpo", "Outros EPI"],
+  Equipamento: ["Deteção/medição", "Sinalização", "Emergência", "Ferramentas", "Acessórios", "Outros equipamentos"],
+  Ambiente: ["Resíduos", "Produtos químicos", "Absorção/derrames", "Manutenção", "Consumíveis", "Outros ambiente"]
+};
+const DEFAULT_CATEGORY = { EPI: "Outros EPI", Equipamento: "Outros equipamentos", Ambiente: "Outros ambiente" };
 let db = null;
-let catalogData = null;
-let modalOpen = false;
-
-function getDb() {
-  if (db) return db;
-  const apps = getApps();
-  if (!apps.length) throw new Error("Firebase ainda não foi inicializado.");
-  db = getFirestore(getApp());
-  return db;
+let cache = null;
+const getDb = () => { if (db) return db; if (!getApps().length) throw new Error("Firebase ainda não foi inicializado."); db = getFirestore(getApp()); return db; };
+const ref = () => doc(getDb(), "appdata", MAIN_DOC);
+const esc = v => String(v ?? "").replace(/[&<>\"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+const n = v => { const s=String(v??"").trim().replace(/\s/g,""); if(!s)return 0; const x=Number(s.includes(",")?s.replace(/\./g,"").replace(",","."):s); return Number.isFinite(x)?x:0; };
+const family = v => FAMILIES.includes(v) ? v : "EPI";
+const category = (f,v) => CATEGORIES[f]?.includes(v) ? v : DEFAULT_CATEGORY[f];
+const money = v => n(v).toLocaleString("pt-PT",{style:"currency",currency:"EUR"});
+function inferCategory(item){const t=`${item?.tipo||""} ${item?.nome||""}`.toLocaleLowerCase("pt-PT");if(/calç|bota|sapato/.test(t))return "Calçado";if(/polo|casaco|calça|parka|colete|vestu/.test(t))return "Vestuário";if(/capacete|francalete/.test(t))return "Cabeça";if(/óculo|oculo|viseira/.test(t))return "Olhos/Face";if(/audit|auricular/.test(t))return "Audição";if(/máscara|mascara|filtro/.test(t))return "Respiração";if(/luva/.test(t))return "Mãos";if(/arnês|arnes|talabarte/.test(t))return "Quedas";return null;}
+function normalize(item){const f=family(item?.familia);const name=String(item?.nome||"Artigo sem nome").trim();return {...item,nome:name,familia:f,categoria:category(f,item?.categoria||inferCategory(item)),nomeMae:String(item?.nomeMae||name).trim(),modelo:String(item?.modelo||"").trim(),variante:String(item?.variante||"").trim(),tipoCadastro:item?.tipoCadastro==="Componente"?"Componente":"Artigo",preco:n(item?.preco),ativo:item?.ativo!==false,perigos:Array.isArray(item?.perigos)?item.perigos:String(item?.perigos||"").split(/[;\n]/).map(x=>x.trim()).filter(Boolean),componentes:Array.isArray(item?.componentes)?item.componentes:[]};}
+async function load(force=false){if(cache&&!force)return cache;const snap=await getDoc(ref());if(!snap.exists())throw new Error("Documento principal não encontrado.");const data=snap.data();data.matriz=(Array.isArray(data.matriz)?data.matriz:[]).map(normalize);cache=data;return data;}
+async function save(data){await setDoc(ref(),{matriz:data.matriz.map(x=>{const y={...x};delete y._catalogIndex;return y;})},{merge:true});cache=data;}
+function injectStyle(){if(document.getElementById("catalog-master-style"))return;const s=document.createElement("style");s.id="catalog-master-style";s.textContent=`
+.catalog-master-bg{position:fixed;inset:0;z-index:1000;background:rgba(3,10,15,.72);display:grid;place-items:center;padding:18px}.catalog-master{width:min(1200px,97vw);max-height:92vh;overflow:auto;background:#f7fbfd;color:#102c3d;border-radius:14px;padding:18px;box-shadow:0 24px 70px rgba(0,0,0,.3)}.catalog-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.catalog-head h2{margin:0 0 4px}.catalog-muted{color:#607783;font-size:.84rem}.catalog-tabs{display:flex;gap:7px;flex-wrap:wrap;margin:14px 0 10px}.catalog-tab,.catalog-btn{border:1px solid #b9cbd4;background:#fff;color:#17364b;border-radius:8px;padding:8px 12px;font-weight:800;cursor:pointer}.catalog-tab.active,.catalog-btn.primary{background:#00a3e0;color:#fff;border-color:#00a3e0}.catalog-btn.danger{color:#a51f17;border-color:#ddb2ae}.catalog-toolbar{display:grid;grid-template-columns:1fr 210px 210px;gap:8px;margin-bottom:10px}.catalog-form{display:grid;grid-template-columns:1.3fr 150px 170px 1fr 120px auto;gap:7px;padding:12px;background:#eef7fb;border:1px solid #d0e0e6;border-radius:10px;margin-bottom:12px}.catalog-master input,.catalog-master select,.catalog-master textarea{width:100%;box-sizing:border-box;border:1px solid #aec2cc;border-radius:7px;padding:8px;background:#fff;color:#122d3d}.catalog-table{width:100%;border-collapse:collapse;font-size:.82rem;min-width:950px}.catalog-table th,.catalog-table td{padding:8px;border-bottom:1px solid #d6e1e5;text-align:left;vertical-align:middle}.catalog-table th{text-transform:uppercase;font-size:.7rem;color:#4f6874}.catalog-edit{display:none;background:#edf6fa}.catalog-edit.open{display:table-row}.catalog-edit-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}.catalog-edit-grid label{font-size:.75rem;font-weight:700;color:#48616f}.catalog-edit-grid textarea{min-height:65px}.status-on{color:#137343;font-weight:800}.status-off{color:#a05b00;font-weight:800}@media(max-width:800px){.catalog-toolbar,.catalog-form,.catalog-edit-grid{grid-template-columns:1fr}}
+`;document.head.appendChild(s);}
+function configuredPrice(item){return n(item.preco)+(item.componentes||[]).reduce((sum,c)=>sum+n(c.preco),0);}
+function render(data,selectedFamily="Todos",selectedCategory="Todos",search="",selectedType="Todos"){
+ injectStyle();document.querySelector(".catalog-master-bg")?.remove();
+ const rows=data.matriz.filter(x=>(selectedFamily==="Todos"||x.familia===selectedFamily)&&(selectedCategory==="Todos"||x.categoria===selectedCategory)&&(selectedType==="Todos"||x.tipoCadastro===selectedType)&&(!search||`${x.nome} ${x.nomeMae} ${x.modelo} ${x.variante}`.toLocaleLowerCase("pt-PT").includes(search.toLocaleLowerCase("pt-PT"))));
+ const cats=selectedFamily==="Todos"?[...new Set(FAMILIES.flatMap(f=>CATEGORIES[f]))]:CATEGORIES[selectedFamily];const counts=Object.fromEntries(FAMILIES.map(f=>[f,data.matriz.filter(x=>x.familia===f).length]));
+ const bg=document.createElement("div");bg.className="catalog-master-bg";bg.innerHTML=`<div class="catalog-master"><div class="catalog-head"><div><h2>Catálogo mestre</h2><div class="catalog-muted">Família → Categoria → Nome mãe → Modelo/variante → Componentes e perigos.</div></div><button class="catalog-btn" data-close>Fechar</button></div><div class="catalog-tabs"><button class="catalog-tab ${selectedFamily==="Todos"?"active":""}" data-family="Todos">Todos (${data.matriz.length})</button>${FAMILIES.map(f=>`<button class="catalog-tab ${selectedFamily===f?"active":""}" data-family="${f}">${f} (${counts[f]})</button>`).join("")}</div><div class="catalog-toolbar"><input data-search value="${esc(search)}" placeholder="Pesquisar artigo / nome mãe / modelo"><select data-category><option>Todos</option>${cats.map(c=>`<option ${c===selectedCategory?"selected":""}>${esc(c)}</option>`).join("")}</select><select data-type><option value="Todos">Todos</option><option value="Artigo" ${selectedType==="Artigo"?"selected":""}>Artigos</option><option value="Componente" ${selectedType==="Componente"?"selected":""}>Componentes</option></select></div><form class="catalog-form" data-add><input name="nome" required placeholder="Nome do artigo"><select name="familia">${FAMILIES.map(f=>`<option>${f}</option>`).join("")}</select><select name="categoria"></select><input name="nomeMae" placeholder="Nome mãe (ex.: Calçado de segurança)"><input name="preco" type="number" min="0" step="0.01" placeholder="Preço base €"><button class="catalog-btn primary">+ Adicionar</button><input name="modelo" placeholder="Modelo / variante"><input name="perigos" style="grid-column:1/-1" placeholder="Perigos/proteções separados por ;"></form><div style="overflow:auto"><table class="catalog-table"><thead><tr><th>Artigo</th><th>Família</th><th>Categoria</th><th>Nome mãe</th><th>Modelo</th><th>Preço base</th><th>Estado</th><th></th></tr></thead><tbody>${rows.length?rows.map(item=>{const i=data.matriz.indexOf(item);return `<tr data-i="${i}"><td><strong>${esc(item.nome)}</strong>${item.tipoCadastro==="Componente"?"<small> · Componente</small>":""}</td><td>${item.familia}</td><td>${esc(item.categoria)}</td><td>${esc(item.nomeMae)}</td><td>${esc([item.modelo,item.variante].filter(Boolean).join(" / "))}</td><td>${money(item.preco)}</td><td class="${item.ativo?"status-on":"status-off"}">${item.ativo?"Ativo":"Inativo"}</td><td><button class="catalog-btn" data-edit>Editar</button></td></tr><tr class="catalog-edit" data-edit-row="${i}"><td colspan="8"><div class="catalog-edit-grid"><label>Família<select data-f>${FAMILIES.map(f=>`<option ${f===item.familia?"selected":""}>${f}</option>`).join("")}</select></label><label>Categoria<select data-c>${CATEGORIES[item.familia].map(c=>`<option ${c===item.categoria?"selected":""}>${esc(c)}</option>`).join("")}</select></label><label>Nome mãe<input data-p value="${esc(item.nomeMae)}"></label><label>Modelo<input data-m value="${esc(item.modelo)}"></label><label>Variante<input data-v value="${esc(item.variante)}"></label><label>Preço base €<input data-price type="number" min="0" step="0.01" value="${item.preco}"></label><label>Tipo<select data-t><option ${item.tipoCadastro==="Artigo"?"selected":""}>Artigo</option><option ${item.tipoCadastro==="Componente"?"selected":""}>Componente</option></select></label><label>Estado<select data-a><option value="true" ${item.ativo?"selected":""}>Ativo</option><option value="false" ${!item.ativo?"selected":""}>Inativo</option></select></label><label>Perigos / proteções<textarea data-h>${esc(item.perigos.join("; "))}</textarea></label><label style="grid-column:1/-1">Componentes (Nome | Preço, um por linha)<textarea data-comp>${esc((item.componentes||[]).map(c=>`${c.nome} | ${n(c.preco).toFixed(2)}`).join("\n"))}</textarea></label><div style="grid-column:1/-1"><button class="catalog-btn primary" data-save>Guardar</button></div></div></td></tr>`;}).join(""):`<tr><td colspan="8">Não existem artigos nesta seleção.</td></tr>`}</tbody></table></div><p class="catalog-muted" style="margin-top:12px"><strong>Histórico:</strong> artigos já usados não são apagados fisicamente; ficam Inativos.</p></div>`;
+ document.body.appendChild(bg);const form=bg.querySelector("[data-add]");const fillCats=()=>{form.categoria.innerHTML=CATEGORIES[form.familia.value].map(c=>`<option>${esc(c)}</option>`).join("")};fillCats();form.familia.addEventListener("change",fillCats);
+ bg.addEventListener("click",async e=>{if(e.target===bg||e.target.closest("[data-close]")){bg.remove();return;}const fb=e.target.closest("[data-family]");if(fb){render(data,fb.dataset.family,"Todos","","Todos");return;}const eb=e.target.closest("[data-edit]");if(eb){eb.closest("tr")?.nextElementSibling?.classList.toggle("open");return;}const saveBtn=e.target.closest("[data-save]");if(!saveBtn)return;const row=saveBtn.closest("[data-edit-row]");const i=Number(row.dataset.editRow);const item=data.matriz[i];if(!item)return;item.familia=family(row.querySelector("[data-f]").value);item.categoria=category(item.familia,row.querySelector("[data-c]").value);item.nomeMae=row.querySelector("[data-p]").value.trim()||item.nome;item.modelo=row.querySelector("[data-m]").value.trim();item.variante=row.querySelector("[data-v]").value.trim();item.preco=n(row.querySelector("[data-price]").value);item.tipoCadastro=row.querySelector("[data-t]").value;item.ativo=row.querySelector("[data-a]").value!=="false";item.perigos=row.querySelector("[data-h]").value.split(/[;\n]/).map(x=>x.trim()).filter(Boolean);item.componentes=row.querySelector("[data-comp]").value.split("\n").map(line=>{const [name,price]=line.split("|");return{name:String(name||"").trim(),preco:n(price)};}).filter(x=>x.name);try{await save(data);render(data,selectedFamily,selectedCategory,search,selectedType);}catch(err){alert(`Não foi possível guardar: ${err?.message||err}`);}});
+ form.addEventListener("submit",async e=>{e.preventDefault();const fd=new FormData(form);const name=String(fd.get("nome")||"").trim();if(!name)return;if(data.matriz.some(x=>x.nome.toLocaleLowerCase("pt-PT")===name.toLocaleLowerCase("pt-PT"))){alert("Já existe um artigo com esse nome.");return;}const item=normalize({nome:name,familia:fd.get("familia"),categoria:fd.get("categoria"),nomeMae:fd.get("nomeMae")||name,modelo:fd.get("modelo"),preco:n(fd.get("preco")),perigos:fd.get("perigos")});data.matriz.push(item);try{await save(data);render(data,item.familia,item.categoria);}catch(err){data.matriz.pop();alert(`Não foi possível adicionar: ${err?.message||err}`);}});
+ const searchBox=bg.querySelector("[data-search]");searchBox.addEventListener("input",()=>{clearTimeout(searchBox._timer);searchBox._timer=setTimeout(()=>render(data,selectedFamily,bg.querySelector("[data-category]").value,searchBox.value,bg.querySelector("[data-type]").value),220);});bg.querySelector("[data-category]").addEventListener("change",e=>render(data,selectedFamily,e.target.value,search,bg.querySelector("[data-type]").value));bg.querySelector("[data-type]").addEventListener("change",e=>render(data,selectedFamily,bg.querySelector("[data-category]").value,search,e.target.value));
 }
-
-const mainRef = () => doc(getDb(), "appdata", MAIN_DOC);
-const esc = value => String(value ?? "").replace(/[&<>\"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[c]));
-
-function normalizeFamily(value) {
-  return FAMILIES.includes(value) ? value : DEFAULT_FAMILY;
-}
-
-function normalizeCatalog(data) {
-  if (!Array.isArray(data.matriz)) data.matriz = [];
-  data.matriz = data.matriz.map((item, index) => ({
-    ...item,
-    nome: String(item?.nome || "Artigo sem nome").trim(),
-    familia: normalizeFamily(item?.familia),
-    ativo: item?.ativo !== false,
-    preco: Number.isFinite(Number(item?.preco)) ? Number(item.preco) : 0,
-    _catalogIndex: index
-  }));
-  return data;
-}
-
-async function loadCatalog() {
-  const snap = await getDoc(mainRef());
-  if (!snap.exists()) throw new Error("Não foi encontrado o documento principal de dados.");
-  return normalizeCatalog(snap.data());
-}
-
-async function saveCatalog(data) {
-  const matriz = data.matriz.map(({ _catalogIndex, ...item }) => item);
-  await setDoc(mainRef(), { matriz }, { merge: true });
-}
-
-function activeItems(data, family) {
-  return data.matriz.filter(item => item.ativo !== false && normalizeFamily(item.familia) === family);
-}
-
-function injectModalStyles() {
-  if (document.getElementById("catalog-family-style")) return;
-  const style = document.createElement("style");
-  style.id = "catalog-family-style";
-  style.textContent = `
-    .catalog-modal-backdrop{position:fixed;inset:0;z-index:500;display:grid;place-items:center;background:rgba(2,7,11,.72);padding:20px}
-    .catalog-modal{width:min(1050px,96vw);max-height:90vh;overflow:auto;background:#f7fbfd;color:#0d2940;border:1px solid #c6d5dc;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.28);padding:18px}
-    .catalog-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
-    .catalog-head h2{margin:0;font-size:1.15rem}.catalog-muted{color:#587080;font-size:.84rem}
-    .catalog-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}.catalog-filter{border:1px solid #b8cbd4;background:#fff;border-radius:7px;padding:8px 12px;cursor:pointer;font-weight:700;color:#17364b}.catalog-filter.active{background:#00a3e0;color:#fff;border-color:#00a3e0}
-    .catalog-add{display:grid;grid-template-columns:minmax(220px,1fr) 180px auto;gap:8px;margin:12px 0;padding:12px;border:1px solid #d2dfe5;border-radius:9px;background:#eef7fb}
-    .catalog-input,.catalog-select{width:100%;box-sizing:border-box;min-height:38px;border:1px solid #aebfc8;border-radius:7px;padding:7px 9px;background:#fff;color:#122d3d}
-    .catalog-btn{border:0;border-radius:7px;padding:8px 13px;background:#00a3e0;color:#fff;font-weight:800;cursor:pointer}.catalog-btn.secondary{background:#fff;color:#17364b;border:1px solid #b8cbd4}.catalog-btn.danger{background:#fff;color:#b42318;border:1px solid #e1aaa5}
-    .catalog-table{width:100%;border-collapse:collapse;font-size:.82rem}.catalog-table th,.catalog-table td{padding:8px;border-bottom:1px solid #d5e0e5;text-align:left;vertical-align:middle}.catalog-table th{font-size:.72rem;text-transform:uppercase;color:#48616f}.catalog-table input[type=text]{min-width:230px}.catalog-status{font-weight:700}.catalog-status.off{color:#9a4b00}.catalog-status.on{color:#147044}
-    @media(max-width:700px){.catalog-add{grid-template-columns:1fr}.catalog-table{font-size:.75rem}.catalog-table th:nth-child(4),.catalog-table td:nth-child(4){display:none}}
-  `;
-  document.head.appendChild(style);
-}
-
-function closeModal() {
-  document.querySelector(".catalog-modal-backdrop")?.remove();
-  modalOpen = false;
-}
-
-function renderModal(data, filter = "Todos", search = "") {
-  injectModalStyles();
-  const old = document.querySelector(".catalog-modal-backdrop");
-  old?.remove();
-  const filtered = data.matriz.filter(item => {
-    const familyOk = filter === "Todos" || normalizeFamily(item.familia) === filter;
-    const textOk = !search || item.nome.toLocaleLowerCase("pt-PT").includes(search.toLocaleLowerCase("pt-PT"));
-    return familyOk && textOk;
-  });
-  const counts = Object.fromEntries(FAMILIES.map(f => [f, data.matriz.filter(i => normalizeFamily(i.familia) === f).length]));
-  const backdrop = document.createElement("div");
-  backdrop.className = "catalog-modal-backdrop";
-  backdrop.innerHTML = `<div class="catalog-modal" role="dialog" aria-modal="true">
-    <div class="catalog-head"><div><h2>Gestão de artigos e famílias</h2><div class="catalog-muted">Catálogo único usado pelas entradas de Compras, Orçamento, Stocks e Entregas.</div></div><button class="catalog-btn secondary" data-catalog-close>Fechar</button></div>
-    <div class="catalog-toolbar">
-      <button class="catalog-filter ${filter === "Todos" ? "active" : ""}" data-catalog-filter="Todos">Todos (${data.matriz.length})</button>
-      ${FAMILIES.map(f => `<button class="catalog-filter ${filter === f ? "active" : ""}" data-catalog-filter="${esc(f)}">${esc(f)} (${counts[f]})</button>`).join("")}
-      <input class="catalog-input" style="max-width:260px;margin-left:auto" placeholder="Pesquisar artigo" value="${esc(search)}" data-catalog-search>
-    </div>
-    <form class="catalog-add" data-catalog-add>
-      <input class="catalog-input" name="nome" placeholder="Nome do novo artigo" required maxlength="120">
-      <select class="catalog-select" name="familia">${FAMILIES.map(f => `<option>${esc(f)}</option>`).join("")}</select>
-      <button class="catalog-btn" type="submit">+ Adicionar artigo</button>
-    </form>
-    <div style="overflow:auto"><table class="catalog-table"><thead><tr><th>Artigo</th><th>Família</th><th>Estado</th><th>Preço atual</th><th>Ações</th></tr></thead><tbody>
-      ${filtered.length ? filtered.map(item => `<tr data-catalog-row="${item._catalogIndex}">
-        <td><input class="catalog-input" type="text" value="${esc(item.nome)}" disabled title="O nome de artigos existentes não é alterado para não quebrar o histórico de entregas."></td>
-        <td><select class="catalog-select" data-catalog-family><option ${item.familia === "EPI" ? "selected" : ""}>EPI</option><option ${item.familia === "Equipamento" ? "selected" : ""}>Equipamento</option><option ${item.familia === "Ambiente" ? "selected" : ""}>Ambiente</option></select></td>
-        <td><label class="catalog-status ${item.ativo === false ? "off" : "on"}"><input type="checkbox" data-catalog-active ${item.ativo === false ? "" : "checked"}> ${item.ativo === false ? "Inativo" : "Ativo"}</label></td>
-        <td>${Number(item.preco || 0).toLocaleString("pt-PT", { style:"currency", currency:"EUR" })}</td>
-        <td><button type="button" class="catalog-btn secondary" data-catalog-save-row>Guardar</button></td>
-      </tr>`).join("") : `<tr><td colspan="5">Não existem artigos nesta seleção.</td></tr>`}
-    </tbody></table></div>
-    <p class="catalog-muted" style="margin:12px 0 0">Os artigos existentes não são apagados fisicamente: podem ficar <strong>Inativos</strong>. Assim não se perde o histórico de entregas/compras.</p>
-  </div>`;
-  document.body.appendChild(backdrop);
-  modalOpen = true;
-
-  backdrop.addEventListener("click", async event => {
-    if (event.target === backdrop || event.target.closest("[data-catalog-close]")) return closeModal();
-    const filterButton = event.target.closest("[data-catalog-filter]");
-    if (filterButton) return renderModal(data, filterButton.dataset.catalogFilter, backdrop.querySelector("[data-catalog-search]")?.value || "");
-    const saveRow = event.target.closest("[data-catalog-save-row]");
-    if (saveRow) {
-      const row = saveRow.closest("tr");
-      const index = Number(row?.dataset.catalogRow);
-      const item = data.matriz[index];
-      if (!item) return;
-      item.familia = normalizeFamily(row.querySelector("[data-catalog-family]")?.value);
-      item.ativo = !!row.querySelector("[data-catalog-active]")?.checked;
-      try { saveRow.disabled = true; await saveCatalog(data); saveRow.textContent = "Guardado ✓"; setTimeout(() => { if (saveRow.isConnected) saveRow.textContent = "Guardar"; }, 1200); } catch (e) { alert(`Não foi possível guardar: ${e?.message || e}`); } finally { saveRow.disabled = false; }
-      return;
-    }
-  });
-  backdrop.querySelector("[data-catalog-add]")?.addEventListener("submit", async event => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const name = form.nome.value.trim();
-    const family = normalizeFamily(form.familia.value);
-    if (!name) return;
-    if (data.matriz.some(item => item.nome.toLocaleLowerCase("pt-PT") === name.toLocaleLowerCase("pt-PT"))) return alert("Já existe um artigo com esse nome.");
-    const item = { nome: name, riscos: "", meses: 12, preco: 0, familia: family, ativo: true };
-    data.matriz.push(item);
-    (data.warehouses || []).forEach(warehouse => {
-      if (!data.stocks) data.stocks = {};
-      if (!data.stocks[warehouse]) data.stocks[warehouse] = {};
-      if (data.stocks[warehouse][name] == null) data.stocks[warehouse][name] = { loose: 0, sizes: {} };
-    });
-    try { await saveCatalog(data); renderModal(data, family, ""); } catch (e) { data.matriz.pop(); alert(`Não foi possível adicionar: ${e?.message || e}`); }
-  });
-  backdrop.querySelector("[data-catalog-search]")?.addEventListener("input", event => {
-    const value = event.currentTarget.value;
-    clearTimeout(event.currentTarget._catalogTimer);
-    event.currentTarget._catalogTimer = setTimeout(() => renderModal(data, filter, value), 180);
-  });
-}
-
-function addManagementButton() {
-  const root = document.querySelector(".budget-management-root");
-  if (!root || !root.querySelector("[data-budget-tab].active")?.dataset.budgetTab === "compras") return;
-  if (root.querySelector("[data-open-catalog]") || !root.querySelector("#purchase-family")) return;
-  const heading = root.querySelector(".budget-view .budget-card h3");
-  if (!heading) return;
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "catalog-btn secondary";
-  button.dataset.openCatalog = "1";
-  button.textContent = "⚙ Gerir artigos / famílias";
-  button.style.marginLeft = "10px";
-  heading.parentElement?.appendChild(button);
-  button.addEventListener("click", async () => {
-    try { const data = await loadCatalog(); renderModal(data); } catch (e) { alert(`Não foi possível carregar o catálogo: ${e?.message || e}`); }
-  });
-}
-
-function enhancePurchaseForm() {
-  const root = document.querySelector(".budget-management-root");
-  if (!root || !root.querySelector("#purchase-family")) return;
-  const family = root.querySelector("#purchase-family");
-  const epiSelect = root.querySelector("#purchase-epi");
-  const productInput = root.querySelector("#purchase-product");
-  if (!family || !epiSelect || !productInput) return;
-
-  loadCatalog().then(data => {
-    const currentFamily = family.value || "EPI";
-    const items = activeItems(data, currentFamily);
-    if (currentFamily === "EPI") {
-      epiSelect.innerHTML = `<option value="">Selecionar EPI</option>${items.map(i => `<option value="${esc(i.nome)}">${esc(i.nome)}</option>`).join("")}`;
-    } else {
-      let list = document.getElementById("catalog-product-list");
-      if (!list) { list = document.createElement("datalist"); list.id = "catalog-product-list"; document.body.appendChild(list); }
-      list.innerHTML = items.map(i => `<option value="${esc(i.nome)}"></option>`).join("");
-      productInput.setAttribute("list", "catalog-product-list");
-      productInput.placeholder = items.length ? "Selecionar artigo do catálogo" : "Adicionar primeiro o artigo no catálogo";
-    }
-  }).catch(() => {});
-
-  if (!family.dataset.catalogEnhanced) {
-    family.dataset.catalogEnhanced = "1";
-    family.addEventListener("change", () => setTimeout(enhancePurchaseForm, 0));
-  }
-  addManagementButton();
-}
-
-// Garante que as compras só aceitam artigos previamente catalogados.
-document.addEventListener("click", async event => {
-  const button = event.target.closest("[data-add-purchase]");
-  if (!button) return;
-  const root = button.closest(".budget-management-root");
-  const family = root?.querySelector("#purchase-family")?.value || "EPI";
-  const product = family === "EPI" ? root?.querySelector("#purchase-epi")?.value : root?.querySelector("#purchase-product")?.value?.trim();
-  try {
-    const data = await loadCatalog();
-    const found = data.matriz.find(item => item.ativo !== false && normalizeFamily(item.familia) === family && item.nome === product);
-    if (!found) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      alert(`O artigo "${product || ""}" não está registado na família ${family}.\n\nVai a «Gerir artigos / famílias» e adiciona-o ao catálogo primeiro.`);
-    }
-  } catch (e) {
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    alert("Não foi possível validar o catálogo. Tenta novamente.");
-  }
-}, true);
-
-document.addEventListener("click", event => {
-  if (event.target.closest("[data-budget-tab=\"compras\"]")) setTimeout(enhancePurchaseForm, 80);
-});
-setTimeout(enhancePurchaseForm, 120);
-setInterval(() => {
-  if (!modalOpen) enhancePurchaseForm();
-}, 800);
+function attach(){const root=document.querySelector(".budget-management-root");const form=root?.querySelector("#purchase-family");if(!root||!form||root.querySelector("[data-open-catalog-master]"))return;const h=form.closest(".budget-card")?.querySelector("h3");if(!h)return;const b=document.createElement("button");b.type="button";b.className="catalog-btn";b.dataset.openCatalogMaster="1";b.textContent="⚙ Gerir catálogo";b.style.marginLeft="10px";h.parentElement.appendChild(b);b.addEventListener("click",async()=>{try{render(await load(true));}catch(e){alert(`Não foi possível abrir o catálogo: ${e?.message||e}`);}});}
+let last="";setInterval(()=>{const root=document.querySelector(".budget-management-root");const active=root?.querySelector('[data-budget-tab="compras"].active');const form=root?.querySelector("#purchase-family");const sig=`${!!active}|${!!form}`;if(sig!==last){last=sig;if(active&&form)attach();}},400);
+export { load, normalize, configuredPrice };
