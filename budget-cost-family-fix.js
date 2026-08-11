@@ -155,6 +155,7 @@ function renderStockFamilies() {
   table.querySelector("tbody").innerHTML = grouped.join("") || `<tr><td colspan="5">Sem artigos nesta família.</td></tr>`;
   const first = table.querySelector("thead th:first-child");
   if (first) first.textContent = "Artigo";
+  stockDataSignature = table.querySelector("tbody")?.textContent || "";
 }
 
 async function refreshStockFamilyData() {
@@ -181,7 +182,6 @@ async function refreshStockFamilyData() {
       });
       return { name: item.nome, family: familyOf(item), nums, total: nums.reduce((a, b) => a + b, 0) };
     });
-    stockDataSignature = domSignature;
     renderStockFamilies();
   } catch (error) {
     console.error("Famílias da matriz de stocks:", error);
