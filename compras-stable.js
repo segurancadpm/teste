@@ -1,17 +1,19 @@
 import { getApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFirestore, doc, getDoc, getDocFromCache, setDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 // Fallback independente para a aba Compras.
-// Não depende do estado interno dos módulos de orçamento/catálogo.
+// Nunca deixa a interface presa indefinidamente em "A carregar...".
 const MAIN_DOC = "dpm_epi_data_v1";
 const FAMILIES = ["EPI", "Equipamento", "Ambiente"];
 const QUARTERS = ["T1", "T2", "T3", "T4"];
+const LOAD_TIMEOUT = 5000;
 let db = null;
 let busy = false;
 
 const getDb = () => db || (db = getFirestore(getApp()));
 const esc = v => String(v ?? "").replace(/[&<>\"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
 const num = v => {
+  if (typeof v === "number") return Number.isFinite(v) ? v : 0;
   const s = String(v ?? "").trim().replace(/\s/g, "");
   if (!s) return 0;
   const n = Number(s.includes(",") ? s.replace(/\./g, "").replace(",", ".") : s);
@@ -20,9 +22,29 @@ const num = v => {
 const euro = v => new Intl.NumberFormat("pt-PT", {style:"currency",currency:"EUR"}).format(num(v));
 const today = () => new Date().toISOString().slice(0,10);
 
+function timeout(ms) {
+  return new Promise((_, reject) => setTimeout(() => reject(new Error("O Firestore demorou demasiado tempo a responder.")), ms));
+}
+
 async function load() {
-  const snap = await getDoc(doc(getDb(), "appdata", MAIN_DOC));
-  return snap.exists() ? snap.data() : { budget: {}, matriz: [] };
+  const ref = doc(getDb(), "appdata", MAIN_DOC);
+  try {
+    // A app principal já costuma ter este documento em cache. Primeiro tentamos
+    // a leitura normal, mas nunca permitimos que a aba fique bloqueada.
+    const snap = await Promise.race([getDoc(ref), timeout(LOAD_TIMEOUT)]);
+    if (snap.exists()) return snap.data();
+  } catch (serverError) {
+    console.warn("Compras: leitura online demorou/falhou; a tentar cache local.", serverError);
+  }
+
+  try {
+    const cached = await getDocFromCache(ref);
+    if (cached.exists()) return cached.data();
+  } catch (cacheError) {
+    console.warn("Compras: documento não disponível no cache local.", cacheError);
+  }
+
+  throw new Error("Não foi possível carregar os dados das Compras. Verifica a ligação ao Firebase e tenta novamente.");
 }
 
 async function savePurchases(data, purchases) {
@@ -33,17 +55,27 @@ async function savePurchases(data, purchases) {
 }
 
 function root() { return document.querySelector(".budget-management-root"); }
-function comprasButton() {
-  return [...document.querySelectorAll("[data-budget-tab]")].find(b => b.getAttribute("data-budget-tab") === "compras");
-}
+function comprasButton() { return [...document.querySelectorAll("[data-budget-tab]")].find(b => b.getAttribute("data-budget-tab") === "compras"); }
 function activeCompras() {
   const b = comprasButton();
   return !!b && (b.classList.contains("active") || b.getAttribute("aria-selected") === "true");
 }
 
-function render(data) {
+function renderError(message) {
   const r = root();
   if (!r || !activeCompras()) return;
+  const old = r.querySelector(".compras-stable-view");
+  if (old) old.remove();
+  const error = document.createElement("div");
+  error.className = "budget-error compras-stable-error";
+  error.innerHTML = `<strong>Compras</strong><br>${esc(message)}<br><button type="button" class="primary" id="cs-retry" style="margin-top:10px">Tentar novamente</button>`;
+  r.appendChild(error);
+  error.querySelector("#cs-retry")?.addEventListener("click", () => activate(true));
+}
+
+function render(data) {
+  const r = root();
+  if (!r || !activeCompras()) return false;
   const purchases = Array.isArray(data?.budget?.management?.purchases) ? data.budget.management.purchases : [];
   const epis = Array.isArray(data?.matriz) ? data.matriz : [];
   const total = purchases.reduce((s,p) => s + num(p.quantity) * num(p.unitPrice), 0);
@@ -74,17 +106,23 @@ function render(data) {
       </tbody></table></div>
     </section>`;
 
-  r.querySelectorAll(".budget-view").forEach(v => v.remove());
+  r.querySelectorAll(".compras-stable-view").forEach(v => v.remove());
+  r.querySelectorAll(".compras-stable-error").forEach(v => v.remove());
   r.appendChild(view);
 
   const family = view.querySelector("#cs-family");
   const toggleProduct = () => {
-    const epi = family.value === "EPI";
-    view.querySelector("#cs-epi-wrap").style.display = epi ? "" : "none";
-    view.querySelector("#cs-product-wrap").style.display = epi ? "none" : "";
+    const isEpi = family.value === "EPI";
+    view.querySelector("#cs-epi-wrap").style.display = isEpi ? "" : "none";
+    view.querySelector("#cs-product-wrap").style.display = isEpi ? "none" : "";
   };
   family.addEventListener("change", toggleProduct);
   toggleProduct();
+
+  view.querySelector("#cs-epi")?.addEventListener("change", () => {
+    const item = epis.find(e => e.nome === view.querySelector("#cs-epi").value);
+    if (item && num(item.preco) > 0) view.querySelector("#cs-price").value = num(item.preco);
+  });
 
   view.querySelector("#cs-add").addEventListener("click", async () => {
     if (busy) return;
@@ -99,7 +137,7 @@ function render(data) {
     try {
       const fresh = await load();
       const list = Array.isArray(fresh?.budget?.management?.purchases) ? fresh.budget.management.purchases.slice() : [];
-      list.push({ id: `p_${Date.now()}_${Math.random().toString(36).slice(2,8)}`, date: view.querySelector("#cs-date").value || today(), family: f, quarter: view.querySelector("#cs-quarter").value, product, quantity, unitPrice, supplier: view.querySelector("#cs-supplier").value.trim(), invoice: view.querySelector("#cs-invoice").value.trim(), createdAt: Date.now() });
+      list.push({ id:`p_${Date.now()}_${Math.random().toString(36).slice(2,8)}`, date:view.querySelector("#cs-date").value || today(), family:f, quarter:view.querySelector("#cs-quarter").value, product, quantity, unitPrice, supplier:view.querySelector("#cs-supplier").value.trim(), invoice:view.querySelector("#cs-invoice").value.trim(), createdAt:Date.now() });
       await savePurchases(fresh, list);
       render(fresh);
     } catch (e) {
@@ -121,24 +159,34 @@ function render(data) {
       if (index >= 0) list.splice(index,1);
       await savePurchases(fresh, list);
       render(fresh);
-    } catch (e) { console.error(e); alert("Não foi possível eliminar o registo."); }
+    } catch (e) { console.error(e); alert(`Não foi possível eliminar o registo.\n\n${e.message || e}`); }
     finally { busy = false; }
   });
+  return true;
 }
 
-async function activate() {
+async function activate(force = false) {
   if (!activeCompras()) return;
   const r = root();
-  if (!r || r.dataset.comprasStable === "1") return;
-  r.dataset.comprasStable = "1";
-  try { render(await load()); }
-  catch (e) { console.error("Compras stable:", e); }
+  if (!r) return;
+  if (!force && r.dataset.comprasStable === "1" && r.querySelector(".compras-stable-view")) return;
+  try {
+    const data = await load();
+    if (render(data)) r.dataset.comprasStable = "1";
+  } catch (e) {
+    console.error("Compras stable:", e);
+    r.dataset.comprasStable = "0";
+    renderError(e?.message || e);
+  }
 }
 
 document.addEventListener("click", e => {
-  const b = e.target.closest("[data-budget-tab=\"compras\"]");
-  if (b) setTimeout(activate, 0);
+  const b = e.target.closest('[data-budget-tab="compras"]');
+  if (b) setTimeout(() => activate(true), 30);
 });
 
-new MutationObserver(() => { if (activeCompras()) activate(); }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "aria-selected"] });
-setTimeout(activate, 300);
+new MutationObserver(() => {
+  if (activeCompras()) activate();
+}).observe(document.body, { childList:true, subtree:true, attributes:true, attributeFilter:["class","aria-selected"] });
+
+setTimeout(() => activate(), 400);
