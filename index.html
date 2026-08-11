@@ -9,13 +9,13 @@
     <title>DPM Solutions | Gestão de EPIs</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Outfit:wght@400;500;600;700;800&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700;800&family=Outfit:wght@400;500;600;700;800&display=swap">
     <link rel="stylesheet" href="styles.css?v=20260807-logo2">
     <link rel="stylesheet" href="styles-contrast.css?v=20260807-logo2">
     <link rel="stylesheet" href="logo.css?v=20260807-logo2">
     <link rel="stylesheet" href="logo-boot.css?v=20260807-logo2">
     <link rel="stylesheet" href="desktop-responsive.css?v=20260811-1">
-    <link rel="stylesheet" href="budget-ui.css?v=20260811-2">
+    <link rel="stylesheet" href="budget-ui.css?v=20260811-3">
   </head>
   <body>
     <div id="app"></div>
@@ -30,6 +30,7 @@
       }
       import('./app.js?v=20260807-logo3')
         .then(() => import('./budget-enhancement.js?v=20260811-2'))
+        .then(() => import('./budget-position-fix.js?v=20260811-1'))
         .catch(showBootError);
     </script>
   </body>
