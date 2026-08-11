@@ -1,15 +1,11 @@
 import { getApps, getApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getFirestore, doc, getDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-// Correção isolada: cruza entregas reais com preços do Orçamento e acrescenta
-// apresentação por família à matriz consolidada de stocks. Não altera dados.
+// Apenas apresentação por família da Matriz Consolidada de Stocks.
+// O Custo / Funcionário é tratado exclusivamente por budget-cost-final.js.
 const MAIN_DOC = "dpm_epi_data_v1";
-const DELIVERY_COLLECTION = "deliveries";
 const FAMILIES = ["Todos", "EPI", "Equipamento", "Ambiente"];
-let runningCost = false;
-let lastCostRoot = null;
 let stockFamily = "Todos";
-let stockDataSignature = "";
 let initialized = false;
 
 const db = () => getFirestore(getApp());
@@ -21,105 +17,21 @@ const num = value => {
   const n = Number(normalized);
   return Number.isFinite(n) ? n : 0;
 };
-const euro = value => new Intl.NumberFormat("pt-PT", { style: "currency", currency: "EUR" }).format(num(value));
 const norm = value => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/\s+/g, " ").trim();
-const familyOf = item => {
-  const f = item?.familia ?? item?.family;
-  return ["EPI", "Equipamento", "Ambiente"].includes(f) ? f : "EPI";
-};
 const esc = value => String(value ?? "").replace(/[&<>\"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[c]));
+const familyOf = item => ["EPI", "Equipamento", "Ambiente"].includes(item?.familia ?? item?.family) ? (item.familia ?? item.family) : "EPI";
 
 async function mainData() {
   const snap = await getDoc(doc(db(), "appdata", MAIN_DOC));
   return snap.exists() ? snap.data() : {};
 }
 
-function priceMap(data) {
-  const map = new Map();
-  const put = (name, price) => {
-    const key = norm(name);
-    if (!key) return;
-    const value = num(price);
-    if (value > 0 || !map.has(key)) map.set(key, value);
-  };
-  (Array.isArray(data.matriz) ? data.matriz : []).forEach(item => put(item.nome, item.preco));
-  const legacy = data?.budget?.items;
-  if (Array.isArray(legacy)) {
-    legacy.forEach(item => put(item.nome ?? item.name ?? item.epi ?? item.artigo, item.unitPrice ?? item.preco ?? item.price));
-  } else if (legacy && typeof legacy === "object") {
-    Object.entries(legacy).forEach(([name, item]) => {
-      if (item && typeof item === "object") put(item.nome ?? item.name ?? name, item.unitPrice ?? item.preco ?? item.price);
-      else put(name, item);
-    });
-  }
-  const planning = data?.budget?.management?.planning;
-  if (planning && typeof planning === "object") Object.entries(planning).forEach(([name, item]) => put(name, item?.unitPrice));
-  return map;
-}
-
-function workerMap(data) {
-  return new Map((Array.isArray(data.trabalhadores) ? data.trabalhadores : []).map(w => [String(w.id), w]));
-}
-
-function deliveryFields(row) {
-  return {
-    workerId: row.worker_id ?? row.trabalhador_id ?? row.workerId ?? row.idTrab,
-    workerName: row.worker_nome ?? row.trabalhador ?? row.worker_name,
-    product: row.epi_type ?? row.epi ?? row.nomeEpi ?? row.nome,
-    quantity: num(row.qtd ?? row.quantidade ?? row.qty),
-    price: num(row.preco ?? row.unitPrice ?? row.unit_price)
-  };
-}
-
-function deliveryRows(data, firestoreRows) {
-  // A coleção deliveries é a fonte oficial das entregas com assinatura.
-  // Os eventos antigos ficam como fallback apenas quando não há documentos.
-  if (firestoreRows.length) return firestoreRows;
-  return (Array.isArray(data.eventos) ? data.eventos : []).filter(e => e.tipo === "ENTREGA");
-}
-
-async function renderRealCost() {
-  if (runningCost) return;
-  const root = document.querySelector(".budget-management-root");
-  if (!root?.querySelector('[data-budget-tab="custo"].active') || root === lastCostRoot) return;
-  const section = [...root.querySelectorAll("h3")].find(h => norm(h.textContent) === "CUSTO / FUNCIONARIO")?.closest("section");
-  if (!section?.querySelector(".table-wrap")) return;
-  runningCost = true;
-  try {
-    const [data, snap] = await Promise.all([mainData(), getDocs(collection(db(), DELIVERY_COLLECTION))]);
-    const workers = workerMap(data);
-    const prices = priceMap(data);
-    const rows = deliveryRows(data, snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    const result = new Map();
-    rows.forEach(raw => {
-      const r = deliveryFields(raw);
-      if (!r.product || (!r.workerId && !r.workerName)) return;
-      const worker = workers.get(String(r.workerId));
-      const name = worker?.nome || r.workerName || `Trabalhador ${r.workerId || ""}`;
-      const key = String(r.workerId || name);
-      const unitPrice = r.price > 0 ? r.price : (prices.get(norm(r.product)) ?? 0);
-      const quantity = r.quantity;
-      if (!result.has(key)) result.set(key, { name, function: worker?.funcao || "", delegation: worker?.delegacao || "", quantity: 0, cost: 0 });
-      const item = result.get(key);
-      item.quantity += quantity;
-      item.cost += quantity * unitPrice;
-    });
-    const list = [...result.values()].sort((a, b) => b.cost - a.cost);
-    section.querySelector(".table-wrap").innerHTML = `<table class="budget-table"><thead><tr><th>Funcionário</th><th>Função</th><th>Delegação</th><th>Qtd. EPI</th><th>Custo</th></tr></thead><tbody>${list.length ? list.map(r => `<tr><td>${esc(r.name)}</td><td>${esc(r.function)}</td><td>${esc(r.delegation)}</td><td>${r.quantity}</td><td>${euro(r.cost)}</td></tr>`).join("") : `<tr><td colspan="5">Não existem entregas registadas.</td></tr>`}</tbody></table>`;
-    lastCostRoot = root;
-  } catch (error) {
-    console.error("Custo por funcionário:", error);
-  } finally {
-    runningCost = false;
-  }
-}
-
 function renderStockFamilies() {
   const heading = [...document.querySelectorAll("h2")].find(h => norm(h.textContent) === "MATRIZ CONSOLIDADA DE STOCKS");
   const section = heading?.closest("section.section");
   const table = section?.querySelector("table");
-  const rows = Array.isArray(window.__dpmFamilyMatrix) ? window.__dpmFamilyMatrix : null;
-  if (!section || !table || !rows) return;
+  const rows = window.__dpmFamilyMatrix;
+  if (!section || !table || !Array.isArray(rows)) return;
 
   let filter = section.querySelector("[data-family-stock-filter]");
   if (!filter) {
@@ -130,7 +42,6 @@ function renderStockFamilies() {
     heading.parentElement?.insertAdjacentElement("afterend", filter);
     filter.querySelectorAll("[data-family-stock]").forEach(button => button.addEventListener("click", () => {
       stockFamily = button.dataset.familyStock;
-      stockDataSignature = "";
       renderStockFamilies();
     }));
   }
@@ -154,19 +65,13 @@ function renderStockFamilies() {
   table.querySelector("tbody").innerHTML = grouped.join("") || `<tr><td colspan="5">Sem artigos nesta família.</td></tr>`;
   const first = table.querySelector("thead th:first-child");
   if (first) first.textContent = "Artigo";
-  stockDataSignature = table.querySelector("tbody")?.textContent || "";
 }
 
-async function refreshStockFamilyData() {
+async function refresh() {
   const heading = [...document.querySelectorAll("h2")].find(h => norm(h.textContent) === "MATRIZ CONSOLIDADA DE STOCKS");
   const section = heading?.closest("section.section");
   const table = section?.querySelector("table");
   if (!table) return;
-  const domSignature = table.querySelector("tbody")?.textContent || "";
-  if (window.__dpmFamilyMatrix && domSignature && stockDataSignature === domSignature) {
-    renderStockFamilies();
-    return;
-  }
   try {
     const data = await mainData();
     const warehouses = Array.isArray(data.warehouses) && data.warehouses.length ? data.warehouses : ["DPM Norte", "DPM Sul", "DPM Algarve"];
@@ -189,19 +94,14 @@ async function refreshStockFamilyData() {
 
 function kick() {
   if (!getApps().length) return;
-  const budget = document.querySelector(".budget-management-root");
-  if (budget?.querySelector('[data-budget-tab="custo"].active')) renderRealCost();
-  refreshStockFamilyData();
+  refresh();
 }
 
 if (!initialized) {
   initialized = true;
   document.addEventListener("click", event => {
-    if (event.target.closest("[data-budget-tab]")) {
-      lastCostRoot = null;
-      setTimeout(kick, 80);
-    }
+    if (event.target.closest("[data-budget-tab]")) setTimeout(kick, 100);
   }, true);
-  setInterval(kick, 1200);
-  setTimeout(kick, 300);
+  setInterval(kick, 1500);
+  setTimeout(kick, 400);
 }
