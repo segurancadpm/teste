@@ -34,6 +34,7 @@
       import('./app.js?v=20260811-stable')
         .then(() => import('./budget-preload.js?v=20260811-preload1'))
         .then(() => import('./budget-management-clean.js?v=20260811-clean2'))
+        .then(() => import('./catalog-family-management.js?v=20260811-catalog1'))
         .then(() => import('./budget-cost-family-fix.js?v=20260811-family4'))
         .then(() => import('./budget-cost-final.js?v=20260811-costfinal1'))
         .catch(showBootError);
