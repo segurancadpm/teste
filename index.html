@@ -17,7 +17,7 @@
     <link rel="stylesheet" href="desktop-responsive.css?v=20260812-core">
     <link rel="stylesheet" href="budget-management.css?v=20260812-sap">
     <link rel="stylesheet" href="budget-dashboard-visuals.css?v=20260812-v1">
-    <style>.budget-management-root[data-cost-loading="1"] .budget-view{visibility:hidden}.family-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.family-tabs .active{background:var(--accent,#0f86b7);color:#fff}.family-list{display:grid;gap:8px}.family-row{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:12px;border:1px solid var(--line);border-radius:8px}.family-row>div{display:grid;gap:3px}</style>
+    <style>.budget-management-root[data-cost-loading="1"] .budget-view{visibility:hidden}.family-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.family-tabs .active{background:var(--accent,#0f86b7);color:#fff}</style>
   </head>
   <body>
     <div id="app"></div>
@@ -31,9 +31,7 @@
         .then(()=>import('./budget-management-clean.js?v=20260812-sap'))
         .then(()=>import('./budget-dashboard-visuals.js?v=20260812-v1'))
         .then(()=>import('./epi-model-management.js?v=20260812-models'))
-        .then(()=>import('./budget-family-management.js?v=20260812-families'))
-        .then(()=>import('./budget-family-bridge.js?v=20260812-familybridge2'))
-        .then(()=>import('./budget-catalog-live-sync.js?v=20260812-live'))
+        .then(()=>import('./inventory-master.js?v=20260812-inventory-master'))
         .catch(showBootError);
     </script>
   </body>
