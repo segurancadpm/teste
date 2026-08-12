@@ -1,0 +1,40 @@
+/* Inventário Geral — ocupar a área útil normal da aplicação */
+#modal-root:has(.inventory-general-shell) {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+}
+
+#modal-root .inventory-general-overlay {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  padding: 0;
+  display: block;
+  overflow: auto;
+  background: var(--bg, #101820);
+}
+
+#modal-root .inventory-general-shell {
+  width: min(1440px, 100%);
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: 18px clamp(12px, 2vw, 28px) 96px;
+  background: var(--bg, #101820);
+}
+
+#modal-root .inventory-general-shell .inventory-general-content {
+  width: 100%;
+}
+
+#modal-root .inventory-general-shell .table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+@media (max-width: 700px) {
+  #modal-root .inventory-general-shell {
+    padding: 12px 10px 88px;
+  }
+}
