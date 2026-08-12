@@ -41,11 +41,10 @@ jobs:
           test -f styles.css
           test -f styles-contrast.css
           test -f logo.css
-          test -f return-epi.js
-          test -f budget-enhancement.js
-          test -f budget-ui.css
-          test -f budget-2026-import.js
-          test -f epi-catalog-sync.js
+          test -f logo-boot.css
+          test -f desktop-responsive.css
+          test -f budget-management.css
+          test -f budget-management-clean.js
           echo "Ficheiros essenciais encontrados."
 
       - name: Preparar artefacto do site
