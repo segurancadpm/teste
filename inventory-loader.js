@@ -13,7 +13,7 @@ async function openInventory() {
   }
   loading = true;
   try {
-    await import('./inventory-general-v2.js?v=20260812-safe');
+    await import('./inventory-general-v3.js?v=20260812-catalog');
     loaded = true;
     window.dispatchEvent(new CustomEvent('dpm:open-inventory'));
   } catch (e) {
@@ -29,10 +29,8 @@ function inject() {
   const page = document.querySelector('.screen-title h1')?.textContent?.trim();
   if (page !== 'Armazém') return;
   if (document.querySelector('[data-safe-inventory-button]')) return;
-
   const target = document.querySelector('main .section-head') || document.querySelector('.screen-title');
   if (!target) return;
-
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'ghost-btn';
