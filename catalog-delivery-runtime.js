@@ -1,17 +1,14 @@
 // DPM — catálogo mestre: modelos na entrega
-// Importante: este módulo NÃO captura cliques globais nem altera data-toggle de outros módulos.
-// A gestão/apagamento do Inventário é responsabilidade do próprio inventory-general-v3.js.
+// Sem MutationObserver global: o formulário de entrega é dinâmico e observar o body
+// enquanto alteramos os próprios selects pode criar um ciclo de mutações e bloquear o UI.
 import { getApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import {
-  getFirestore, doc, getDoc, setDoc, collection, getDocs, query, where
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const db = () => getFirestore(getApp());
 const mainRef = () => doc(db(), "appdata", "dpm_epi_data_v1");
 let cache = null;
 let loading = null;
 const norm = v => String(v ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/\s+/g," ").trim();
-const n = v => { const x = Number(v); return Number.isFinite(x) ? x : 0; };
 const esc = v => String(v ?? "").replace(/[&<>\"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
 
 async function data(){
@@ -33,9 +30,8 @@ function modelOptions(models, current=""){
 function filterSizes(item, modelName){
   const size = item.querySelector('[name="tamanho"]');
   if (!size || !modelName) return;
-  const d = cache;
   const epi = item.querySelector('[name="epi"]')?.value || '';
-  const model = modelList(d, epi).find(m => norm(m.nome) === norm(modelName));
+  const model = modelList(cache, epi).find(m => norm(m.nome) === norm(modelName));
   const allowed = Array.isArray(model?.tamanhos) ? new Set(model.tamanhos.map(norm)) : null;
   if (!allowed) return;
   [...size.options].forEach(o => {
@@ -68,31 +64,28 @@ async function enhanceDeliveryItem(item){
 }
 
 async function enhanceDelivery(){
-  // Compatibilidade com as duas formas usadas pela aplicação para renderizar entregas.
   const forms = [...document.querySelectorAll('[data-form="delivery"], form[data-delivery-form], .delivery-form')];
   for (const form of forms){
     const items = form.querySelectorAll('.delivery-item, [data-delivery-item], .epi-delivery-item');
     for (const item of items) await enhanceDeliveryItem(item);
   }
-  // Alguns ecrãs criam um único bloco de EPI sem .delivery-item.
-  document.querySelectorAll('[name="epi"]').forEach(select => {
-    const item = select.closest('.delivery-item,[data-delivery-item],.epi-delivery-item');
-    if (item) enhanceDeliveryItem(item).catch(console.error);
-  });
 }
 
-const deliveryObserver = new MutationObserver(() => { enhanceDelivery().catch(console.error); });
-deliveryObserver.observe(document.body, {childList:true, subtree:true});
-setTimeout(() => enhanceDelivery().catch(console.error), 300);
-setTimeout(() => enhanceDelivery().catch(console.error), 1200);
-
-// Quando o EPI muda, atualiza imediatamente o catálogo de modelos.
+// O formulário é criado dinamicamente. Reagimos apenas aos controlos de entrega,
+// nunca a todas as mutações do documento.
 document.addEventListener('change', ev => {
   if (ev.target?.name !== 'epi') return;
   const item = ev.target.closest('.delivery-item,[data-delivery-item],.epi-delivery-item');
   if (item) enhanceDeliveryItem(item).catch(console.error);
 });
 
-// Não escrevemos modelo em deliveries aqui. O módulo de entrega deve guardar o modelo
-// no mesmo momento que guarda a entrega, evitando uma segunda escrita assíncrona que
-// possa atingir a entrega errada.
+document.addEventListener('click', ev => {
+  if (ev.target.closest('[data-action="addDeliveryItem"]')) {
+    setTimeout(() => enhanceDelivery().catch(console.error), 0);
+  }
+  if (ev.target.closest('[data-action="removeDeliveryItem"]')) {
+    setTimeout(() => enhanceDelivery().catch(console.error), 0);
+  }
+});
+
+setTimeout(() => enhanceDelivery().catch(console.error), 500);
