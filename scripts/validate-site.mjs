@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,6 +10,7 @@ const stripQuery = (value) => value.split(/[?#]/, 1)[0];
 
 function checkAsset(ownerFile, reference) {
   if (!isLocalAsset(reference)) return;
+  if (/\$\{[^}]+\}/.test(reference)) return; // runtime-generated template reference
   const clean = stripQuery(reference);
   if (!clean) return;
   const target = normalize(join(dirname(ownerFile), clean));
@@ -31,14 +32,12 @@ const jsFiles = files.filter((file) => extname(file) === ".js" || extname(file) 
 
 for (const file of jsFiles) {
   const text = readFileSync(file, "utf8");
-  const relative = file.replace(root, ".");
-
   for (const match of text.matchAll(/(?:from\s*["']|import\s*\(\s*["']|(?:src|href)\s*=\s*["'])([^"']+)["']/g)) {
     checkAsset(file, match[1]);
   }
-
+  if (file.endsWith("scripts/validate-site.mjs")) continue;
   if (/\b(?:TODO|FIXME)\b/i.test(text)) {
-    failures.push(`${relative}: TODO/FIXME encontrado; resolver antes de publicar.`);
+    failures.push(`${file.replace(root, ".")}: TODO/FIXME encontrado; resolver antes de publicar.`);
   }
 }
 
