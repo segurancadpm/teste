@@ -34,3 +34,5 @@ jobs:
           exit "$failed"
       - name: Validar integridade do site
         run: node scripts/validate-site.mjs
+      - name: Executar testes unitários do modelo
+        run: node tests/enterprise-data-model.test.mjs
