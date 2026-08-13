@@ -1,7 +1,9 @@
-// DPM — catálogo mestre: apagar artigos sem histórico + modelos na entrega
+// DPM — catálogo mestre: modelos na entrega
+// Importante: este módulo NÃO captura cliques globais nem altera data-toggle de outros módulos.
+// A gestão/apagamento do Inventário é responsabilidade do próprio inventory-general-v3.js.
 import { getApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
-  getFirestore, doc, getDoc, setDoc, collection, getDocs, query, where, runTransaction
+  getFirestore, doc, getDoc, setDoc, collection, getDocs, query, where
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const db = () => getFirestore(getApp());
@@ -52,113 +54,45 @@ async function enhanceDeliveryItem(item){
   let model = item.querySelector('[name="modelo"]');
   if (!model){
     const wrap = document.createElement('div');
-    wrap.className = 'field-row';
-    wrap.innerHTML = `<select class="select delivery-model" name="modelo"><option value="">Selecionar modelo…</option></select>`;
-    epiSelect.closest('.field-row')?.insertAdjacentElement('afterend', wrap);
+    wrap.className = 'field-row delivery-model-row';
+    wrap.innerHTML = `<label class="field-label">Modelo</label><select class="select delivery-model" name="modelo"><option value="">Selecionar modelo…</option></select>`;
+    const anchor = epiSelect.closest('.field-row') || epiSelect.parentElement;
+    anchor?.insertAdjacentElement('afterend', wrap);
     model = wrap.querySelector('[name="modelo"]');
     model.addEventListener('change', () => filterSizes(item, model.value));
   }
   const current = model.value;
   model.innerHTML = modelOptions(modelList(d, epiSelect.value), current);
+  model.disabled = model.options.length <= 1;
   if (model.value) filterSizes(item, model.value);
 }
 
 async function enhanceDelivery(){
-  const form = document.querySelector('[data-form="delivery"]');
-  if (!form) return;
-  for (const item of form.querySelectorAll('.delivery-item')) await enhanceDeliveryItem(item);
+  // Compatibilidade com as duas formas usadas pela aplicação para renderizar entregas.
+  const forms = [...document.querySelectorAll('[data-form="delivery"], form[data-delivery-form], .delivery-form')];
+  for (const form of forms){
+    const items = form.querySelectorAll('.delivery-item, [data-delivery-item], .epi-delivery-item');
+    for (const item of items) await enhanceDeliveryItem(item);
+  }
+  // Alguns ecrãs criam um único bloco de EPI sem .delivery-item.
+  document.querySelectorAll('[name="epi"]').forEach(select => {
+    const item = select.closest('.delivery-item,[data-delivery-item],.epi-delivery-item');
+    if (item) enhanceDeliveryItem(item).catch(console.error);
+  });
 }
 
 const deliveryObserver = new MutationObserver(() => { enhanceDelivery().catch(console.error); });
 deliveryObserver.observe(document.body, {childList:true, subtree:true});
-setTimeout(() => enhanceDelivery().catch(console.error), 100);
+setTimeout(() => enhanceDelivery().catch(console.error), 300);
+setTimeout(() => enhanceDelivery().catch(console.error), 1200);
 
+// Quando o EPI muda, atualiza imediatamente o catálogo de modelos.
 document.addEventListener('change', ev => {
-  const form = ev.target.closest('[data-form="delivery"]');
-  if (!form || ev.target.name !== 'epi') return;
-  const item = ev.target.closest('.delivery-item');
+  if (ev.target?.name !== 'epi') return;
+  const item = ev.target.closest('.delivery-item,[data-delivery-item],.epi-delivery-item');
   if (item) enhanceDeliveryItem(item).catch(console.error);
 });
 
-let pendingModels = null;
-document.addEventListener('submit', ev => {
-  const form = ev.target;
-  if (form?.dataset?.form !== 'delivery') return;
-  pendingModels = [...form.querySelectorAll('.delivery-item')].map(item => ({
-    epi: item.querySelector('[name="epi"]')?.value || '',
-    modelo: item.querySelector('[name="modelo"]')?.value || '',
-    tamanho: item.querySelector('[name="tamanho"]')?.value || ''
-  }));
-  setTimeout(() => enrichNewDeliveries(pendingModels).catch(console.error), 1800);
-}, true);
-
-async function enrichNewDeliveries(items){
-  if (!items?.some(x => x.modelo)) return;
-  try{
-    const qs = await getDocs(collection(db(), 'deliveries'));
-    const now = Date.now();
-    const candidates = qs.docs.filter(x => now - n(x.data()?.created_at) < 20000).sort((a,b) => n(a.data()?.created_at)-n(b.data()?.created_at));
-    for (const item of items.filter(x => x.modelo)){
-      const target = candidates.find(x => {
-        const v=x.data();
-        return v.epi_type===item.epi && String(v.tamanho||'').toUpperCase()===String(item.tamanho||'').toUpperCase() && !v.modelo;
-      });
-      if (target) await setDoc(target.ref, { modelo: item.modelo }, {merge:true});
-    }
-  }catch(e){ console.error('Modelo da entrega:', e); }
-}
-
-async function hardDeleteCatalogItem(button){
-  const row = button.closest('tr');
-  const name = row?.querySelector('td strong')?.textContent?.trim();
-  if (!name) return;
-  const d = await data();
-  const events = Array.isArray(d.eventos) ? d.eventos.filter(e => norm(e.epi)===norm(name)) : [];
-  let stockTotal = 0;
-  Object.values(d.stocks || {}).forEach(w => {
-    const r = w?.[name];
-    if (typeof r === 'number') stockTotal += n(r);
-    else { stockTotal += n(r?.loose); Object.values(r?.sizes || {}).forEach(v => stockTotal += n(v)); }
-  });
-  let deliveries = [];
-  try { deliveries = (await getDocs(query(collection(db(),'deliveries'), where('epi_type','==',name)))).docs; } catch(e) { console.warn('Não foi possível verificar deliveries:',e); }
-  if (stockTotal || events.length || deliveries.length){
-    alert(`Não posso apagar "${name}" porque já existe histórico/stock associado.\n\nStock: ${stockTotal}\nEventos: ${events.length}\nEntregas: ${deliveries.length}\n\nPara manter a integridade dos dados, este artigo deve ser apenas desativado.`);
-    return;
-  }
-  if (!confirm(`Apagar definitivamente "${name}" do Inventário Geral?\n\nSó é permitido porque não existem stock nem entregas/histórico. Esta ação não pode ser desfeita.`)) return;
-  try{
-    await runTransaction(db(), async tx => {
-      const snap = await tx.get(mainRef());
-      const x = snap.data() || {};
-      const budget = {...(x.budget||{})};
-      const catalog = {...(budget.inventoryCatalog||{})};
-      const families = {...(catalog.families||{})};
-      Object.keys(families).forEach(f => { families[f] = (Array.isArray(families[f]) ? families[f] : []).filter(i => norm(i?.name)!==norm(name)); });
-      catalog.families = families;
-      budget.inventoryCatalog = catalog;
-      if (budget.items) { const bi={...budget.items}; delete bi[name]; budget.items=bi; }
-      if (budget.management?.planning) { const bp={...budget.management.planning}; delete bp[name]; budget.management={...(budget.management||{}),planning:bp}; }
-      if (budget.familyCatalog) { const fc={...budget.familyCatalog}; Object.keys(fc).forEach(f=>{ if(Array.isArray(fc[f])) fc[f]=fc[f].filter(i=>norm(i?.name||i?.nome)!==norm(name)); }); budget.familyCatalog=fc; }
-      const matriz=(Array.isArray(x.matriz)?x.matriz:[]).filter(i=>norm(i?.nome)!==norm(name));
-      const epiModels={...(x.epiModels||{})}; delete epiModels[name];
-      const stocks={...(x.stocks||{})};
-      Object.keys(stocks).forEach(w=>{ const copy={...(stocks[w]||{})}; delete copy[name]; stocks[w]=copy; });
-      tx.set(mainRef(), {budget, matriz, epiModels, stocks}, {merge:true});
-    });
-    cache=null;
-    alert(`"${name}" foi apagado.`);
-    location.reload();
-  }catch(e){ console.error(e); alert(`Não foi possível apagar o artigo.\n\n${e.message||e}`); }
-}
-
-document.addEventListener('click', ev => {
-  const b = ev.target.closest('[data-toggle]');
-  if (!b) return;
-  ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation();
-  hardDeleteCatalogItem(b).catch(e => alert(`Erro ao apagar: ${e.message||e}`));
-}, true);
-
-function relabel(){ document.querySelectorAll('[data-toggle]').forEach(b => { b.textContent = 'Apagar'; }); }
-new MutationObserver(relabel).observe(document.body,{childList:true,subtree:true});
-relabel();
+// Não escrevemos modelo em deliveries aqui. O módulo de entrega deve guardar o modelo
+// no mesmo momento que guarda a entrega, evitando uma segunda escrita assíncrona que
+// possa atingir a entrega errada.
