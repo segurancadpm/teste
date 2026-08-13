@@ -1,7 +1,9 @@
-name: Validar JavaScript
+name: Validar JavaScript e integridade do site
 
 on:
   push:
+    branches: [main, chore/senior-hardening]
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
@@ -21,12 +23,14 @@ jobs:
       - name: Validar sintaxe JavaScript
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
           failed=0
           while IFS= read -r -d '' file; do
             echo "A validar: $file"
             if ! node --check "$file"; then
               failed=1
             fi
-          done < <(find . -maxdepth 1 -type f -name '*.js' -print0)
+          done < <(find . -type f \( -name '*.js' -o -name '*.mjs' \) -not -path './.git/*' -print0)
           exit "$failed"
+      - name: Validar integridade do site
+        run: node scripts/validate-site.mjs
