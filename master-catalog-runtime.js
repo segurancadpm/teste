@@ -1,16 +1,51 @@
-// DPM — Catálogo Mestre Runtime
+// DPM — Catálogo Mestre Runtime v2
+// O Inventário Mestre é a fonte de verdade. Este runtime apenas mantém compatibilidade
+// com o modelo legacy; nunca recria artigos apagados a partir de matriz/stock.
 import { getApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { loadCatalog, articleId, getArticles } from "./catalog-master.js";
+
 const DOC="dpm_epi_data_v1", FAMILIES=["EPI","Equipamento","Ambiente","Portes"];
 const db=()=>getFirestore(getApp()), ref=()=>doc(db(),"appdata",DOC);
-const norm=v=>String(v??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase().replace(/\s+/g," ").trim();
+const norm=v=>String(v??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ").trim().toUpperCase();
 let busy=false;
-function ensure(d){d=d||{};d.budget||={};d.budget.inventoryCatalog||={families:{}};d.budget.inventoryCatalog.families||={};FAMILIES.forEach(f=>d.budget.inventoryCatalog.families[f]||=[]);d.matriz=Array.isArray(d.matriz)?d.matriz:[];d.warehouses=Array.isArray(d.warehouses)&&d.warehouses.length?d.warehouses:["DPM Norte","DPM Sul","DPM Algarve"];d.stocks||={};d.epiModels||={};d.eventos=Array.isArray(d.eventos)?d.eventos:[];return d;}
-function items(d){return FAMILIES.flatMap(f=>(d.budget.inventoryCatalog.families[f]||[]).map(x=>({...x,familia:x.familia||f})));}
-function historical(d,name){const k=norm(name);return d.eventos.some(e=>norm(e?.epi||e?.epi_type)===k)||Object.values(d.stocks||{}).some(s=>s&&Object.keys(s).some(n=>norm(n)===k))||Object.keys(d.epiModels||{}).some(n=>norm(n)===k);}
-async function sync(){if(busy)return;busy=true;try{const s=await getDoc(ref());if(!s.exists())return;const d=ensure(s.data());let changed=false;for(const x of items(d).filter(x=>x.active!==false)){if(!x.name)continue;let epi=d.matriz.find(e=>norm(e?.nome)===norm(x.name));if(!epi&&x.familia==="EPI"){epi={nome:x.name,riscos:Array.isArray(x.perigos)?x.perigos.join(", "):"",meses:12,preco:Number(x.preco||0),familia:"EPI",categoria:x.categoria||""};d.matriz.push(epi);changed=true;}if(epi){if(epi.nomeMae!==x.name){epi.nomeMae=x.name;changed=true;}if(epi.familia!==x.familia){epi.familia=x.familia;changed=true;}if(x.categoria&&epi.categoria!==x.categoria){epi.categoria=x.categoria;changed=true;}if(Number(x.preco||0)>0&&Number(epi.preco||0)!==Number(x.preco)){epi.preco=Number(x.preco);changed=true;}}if(x.familia==="EPI"){d.epiModels[x.name]=Array.isArray(d.epiModels[x.name])?d.epiModels[x.name]:[];for(const w of d.warehouses){d.stocks[w]||={};if(!d.stocks[w][x.name]){d.stocks[w][x.name]={loose:0,sizes:{},models:{}};changed=true;}if(typeof d.stocks[w][x.name]==="number"){d.stocks[w][x.name]={loose:Number(d.stocks[w][x.name]),sizes:{},models:{}};changed=true;}d.stocks[w][x.name].models||={};d.stocks[w][x.name].sizes||={};}}}if(changed)await setDoc(ref(),{budget:d.budget,matriz:d.matriz,stocks:d.stocks,epiModels:d.epiModels},{merge:true});}catch(e){console.warn("Catálogo Mestre",e)}finally{busy=false;}}
-function injectDelete(){const root=document.querySelector("#modal-root .inventory-general-content");if(!root)return;root.querySelectorAll("[data-toggle]").forEach(toggle=>{const cell=toggle.parentElement;if(!cell||cell.querySelector("[data-master-delete]"))return;const b=document.createElement("button");b.type="button";b.className="danger-link";b.dataset.masterDelete=toggle.dataset.toggle;b.textContent="Eliminar";b.style.marginLeft="10px";cell.appendChild(b);b.onclick=async e=>{e.preventDefault();e.stopPropagation();const s=await getDoc(ref());if(!s.exists())return;const d=ensure(s.data());const fam=document.querySelector("#modal-root [data-family].active")?.dataset.family||"EPI";const list=d.budget.inventoryCatalog.families[fam]||[];const x=list[Number(b.dataset.masterDelete)];if(!x)return;const hist=historical(d,x.name);if(!confirm(hist?`\"${x.name}\" tem histórico/stock. Para proteger os registos será desativado. Continuar?`:`Eliminar definitivamente \"${x.name}\" do catálogo mestre?`))return;if(hist)x.active=false;else list.splice(list.findIndex(v=>v.id===x.id),1);await setDoc(ref(),{budget:d.budget},{merge:true});document.querySelector("#modal-root [data-refresh-catalog]")?.click();};});}
-document.addEventListener("click",e=>{const f=e.target.closest("#wh-entry-form");if(f&&e.target.matches("input,select,option,label"))e.stopPropagation();},true);
-new MutationObserver(injectDelete).observe(document.body,{childList:true,subtree:true});
-window.addEventListener("dpm:open-inventory",()=>setTimeout(()=>{injectDelete();sync()},0));
-window.addEventListener("dpm:master-changed",sync);setTimeout(sync,800);
+
+function ensure(data){
+  const d=data||{}; d.budget ||= {}; d.budget.inventoryCatalog ||= {families:{}}; d.budget.inventoryCatalog.families ||= {};
+  FAMILIES.forEach(f=>d.budget.inventoryCatalog.families[f] ||= []);
+  d.matriz=Array.isArray(d.matriz)?d.matriz:[]; d.stocks ||= {}; d.epiModels ||= {};
+  d.warehouses=Array.isArray(d.warehouses)&&d.warehouses.length?d.warehouses:["DPM Norte","DPM Sul","DPM Algarve"];
+  return d;
+}
+
+async function syncCanonicalToLegacy(){
+  if(busy)return; busy=true;
+  try{
+    const canonical=await loadCatalog(db());
+    const d=ensure(canonical);
+    // Canonical -> legacy only. Never read legacy to recreate a deleted catalog item.
+    for(const x of getArticles(d,"EPI",false)){
+      const name=x.nome; if(!name)continue;
+      let epi=d.matriz.find(e=>norm(e?.nome)===norm(name));
+      if(!epi){
+        d.matriz.push({nome:name,riscos:Array.isArray(x.perigos)?x.perigos.join(", "):"",meses:12,preco:Number(x.preco||0),familia:"EPI",categoria:x.categoria||""});
+      }else{
+        if(Number(x.preco||0)>0)epi.preco=Number(x.preco);
+        epi.familia="EPI";
+      }
+      d.epiModels[name]=Array.isArray(d.epiModels[name])?d.epiModels[name]:[];
+      for(const w of d.warehouses){
+        d.stocks[w] ||= {};
+        if(!d.stocks[w][name])d.stocks[w][name]={loose:0,sizes:{},models:{}};
+        if(typeof d.stocks[w][name]==="number")d.stocks[w][name]={loose:Number(d.stocks[w][name]),sizes:{},models:{}};
+        d.stocks[w][name].models ||= {}; d.stocks[w][name].sizes ||= {};
+      }
+    }
+    await setDoc(ref(),{budget:d.budget,matriz:d.matriz,stocks:d.stocks,epiModels:d.epiModels},{merge:true});
+  }catch(e){console.warn("Catálogo Mestre sync:",e)}finally{busy=false}
+}
+
+window.DPMMasterCatalogSync={sync:syncCanonicalToLegacy};
+window.addEventListener("dpm:open-inventory",()=>setTimeout(syncCanonicalToLegacy,0));
+window.addEventListener("dpm:master-changed",()=>setTimeout(syncCanonicalToLegacy,0));
+setTimeout(syncCanonicalToLegacy,800);
