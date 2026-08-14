@@ -1,7 +1,6 @@
 // DPM — Inventário Mestre: eliminação definitiva do artigo.
-// Remove o artigo do catálogo mestre, matriz, stocks, modelos e catálogos
-// de orçamento no mesmo documento Firestore. O histórico de entregas NÃO é
-// apagado, para não destruir o registo/auditoria de entregas já efetuadas.
+// Usa os seletores reais do Inventário Geral (data-ig-toggle) e o mesmo
+// documento Firebase. Não cria outro catálogo nem outra base de dados.
 import { getApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
@@ -11,67 +10,91 @@ const db = () => getFirestore(getApp());
 const ref = () => doc(db(), "appdata", DOC);
 const norm = v => String(v ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/\s+/g, " ").trim();
 
-function removeFromArray(arr, name, fields=["name","nome"]) {
-  if (!Array.isArray(arr)) return [];
+function removeArray(arr, name, fields=["name","nome"]) {
+  if (!Array.isArray(arr)) return arr;
   return arr.filter(x => !fields.some(f => norm(x?.[f]) === norm(name)));
 }
 
-function removeFromMap(map, name) {
+function removeMap(map, name) {
   if (!map || typeof map !== "object" || Array.isArray(map)) return map;
   const out = {};
-  Object.entries(map).forEach(([k,v]) => { if (norm(k) !== norm(name)) out[k] = v; });
+  for (const [key, value] of Object.entries(map)) {
+    if (norm(key) !== norm(name)) out[key] = value;
+  }
   return out;
 }
 
-function injectButtons() {
+function addButtons() {
   const root = document.getElementById("modal-root");
-  const shell = root?.querySelector(".inventory-general-shell");
-  if (!shell) return;
-  const rows = shell.querySelectorAll("table.budget-table tbody tr");
-  rows.forEach(row => {
-    const toggle = row.querySelector("[data-toggle]");
-    if (!toggle || row.querySelector("[data-definitive-delete]")) return;
+  if (!root) return;
+  root.querySelectorAll("[data-ig-toggle]").forEach(toggle => {
+    const cell = toggle.closest("td");
+    if (!cell || cell.querySelector("[data-definitive-delete]")) return;
     const button = document.createElement("button");
     button.type = "button";
     button.className = "danger-link";
     button.dataset.definitiveDelete = "1";
-    button.style.marginLeft = "10px";
+    button.style.display = "block";
+    button.style.marginTop = "8px";
     button.textContent = "Apagar definitivamente";
-    button.addEventListener("click", () => definitiveDelete(row));
-    toggle.parentElement?.appendChild(button);
+    cell.appendChild(button);
   });
 }
 
-async function definitiveDelete(row) {
-  const name = row.querySelector("td strong")?.textContent?.trim();
+async function definitiveDelete(toggle) {
+  const row = toggle.closest("tr");
+  const name = row?.querySelector("td:first-child strong")?.textContent?.trim();
   if (!name) return;
-  const ok = confirm(`APAGAR DEFINITIVAMENTE\n\n"${name}" será removido do Inventário Mestre, matriz, stocks, modelos e orçamento.\n\nEsta ação não apaga o histórico de entregas já registadas.\n\nContinuar?`);
+
+  const ok = confirm(`APAGAR DEFINITIVAMENTE\n\n"${name}" será removido do Inventário Mestre, matriz, stocks, modelos e orçamento.\n\nAs entregas históricas não serão apagadas.\n\nContinuar?`);
   if (!ok) return;
+
   try {
     const snap = await getDoc(ref());
     if (!snap.exists()) throw new Error("O documento principal do Firebase não existe.");
     const d = snap.data() || {};
     d.budget ||= {};
-    d.budget.inventoryCatalog ||= {families:{}};
+    d.budget.inventoryCatalog ||= { families: {} };
     d.budget.inventoryCatalog.families ||= {};
-    FAMILIES.forEach(f => { d.budget.inventoryCatalog.families[f] = removeFromArray(d.budget.inventoryCatalog.families[f], name); });
-    d.budget.familyCatalog ||= {};
-    FAMILIES.forEach(f => { d.budget.familyCatalog[f] = removeFromArray(d.budget.familyCatalog[f], name); });
-    if (d.budget.management?.planning) d.budget.management.planning = removeFromMap(d.budget.management.planning, name);
+
+    for (const family of FAMILIES) {
+      d.budget.inventoryCatalog.families[family] = removeArray(d.budget.inventoryCatalog.families[family], name);
+    }
+
+    if (d.budget.familyCatalog) {
+      for (const family of FAMILIES) d.budget.familyCatalog[family] = removeArray(d.budget.familyCatalog[family], name);
+    }
+
+    if (d.budget.management?.planning) d.budget.management.planning = removeMap(d.budget.management.planning, name);
     if (d.budget.management?.catalog) {
-      if (Array.isArray(d.budget.management.catalog)) d.budget.management.catalog = removeFromArray(d.budget.management.catalog, name);
-      else d.budget.management.catalog = removeFromMap(d.budget.management.catalog, name);
+      d.budget.management.catalog = Array.isArray(d.budget.management.catalog)
+        ? removeArray(d.budget.management.catalog, name)
+        : removeMap(d.budget.management.catalog, name);
     }
-    if (d.budget.items) d.budget.items = removeFromMap(d.budget.items, name);
-    d.matriz = removeFromArray(d.matriz, name, ["nome"]);
-    if (d.epiModels) d.epiModels = removeFromMap(d.epiModels, name);
+    if (d.budget.items) d.budget.items = removeMap(d.budget.items, name);
+
+    d.matriz = removeArray(d.matriz, name, ["nome"]);
+    if (d.epiModels) d.epiModels = removeMap(d.epiModels, name);
+
     if (d.stocks && typeof d.stocks === "object") {
-      Object.entries(d.stocks).forEach(([warehouse, stock]) => { d.stocks[warehouse] = removeFromMap(stock, name); });
+      for (const [warehouse, stock] of Object.entries(d.stocks)) {
+        d.stocks[warehouse] = removeMap(stock, name);
+      }
     }
-    await setDoc(ref(), {budget:d.budget, matriz:d.matriz, stocks:d.stocks, epiModels:d.epiModels}, {merge:true});
-    alert(`"${name}" foi eliminado definitivamente do Inventário Mestre e do documento principal Firebase.`);
-    const refresh = document.querySelector("#modal-root [data-refresh-catalog]");
-    if (refresh) refresh.click();
+
+    await setDoc(ref(), {
+      budget: d.budget,
+      matriz: d.matriz,
+      stocks: d.stocks,
+      epiModels: d.epiModels
+    }, { merge: true });
+
+    // Atualiza imediatamente a janela sem reload e sem deixar a linha antiga visível.
+    row.remove();
+    alert(`"${name}" foi eliminado definitivamente do Inventário Mestre e do Firebase.`);
+
+    // O Inventário Geral possui o seu próprio reload ao ser fechado/reaberto.
+    // Não usamos location.reload() para não interferir com o login ou com a entrega.
   } catch (err) {
     console.error("Eliminação definitiva do inventário:", err);
     alert(`Não foi possível eliminar "${name}".\n\n${err.message || err}`);
@@ -79,5 +102,17 @@ async function definitiveDelete(row) {
 }
 
 const root = document.getElementById("modal-root");
-if (root) new MutationObserver(injectButtons).observe(root, {childList:true, subtree:true});
-setTimeout(injectButtons, 700);
+if (root) {
+  const observer = new MutationObserver(addButtons);
+  observer.observe(root, { childList: true, subtree: true });
+  addButtons();
+
+  root.addEventListener("click", event => {
+    const button = event.target.closest?.("[data-definitive-delete]");
+    if (!button) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const toggle = button.closest("td")?.querySelector("[data-ig-toggle]");
+    if (toggle) definitiveDelete(toggle);
+  }, true);
+}
