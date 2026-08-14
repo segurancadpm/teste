@@ -1,6 +1,5 @@
 // DPM — lançador de Entrega ISOLADO
-// Executa como script clássico, antes do app.js. O formulário vive num iframe
-// same-origin; os eventos internos nunca entram na árvore DOM do app principal.
+// Mantém o formulário fora da árvore DOM principal para impedir conflitos de eventos.
 (function () {
   let overlay = null;
 
@@ -16,8 +15,8 @@
       return;
     }
 
-    const full = heading.textContent.trim();
-    const name = full.replace(/^\s*\d+\s*/, '').trim();
+    // Não remover o número/identificador: ele faz parte da identificação do trabalhador.
+    const workerLabel = heading.textContent.trim();
     const responsavel = document.querySelector('.user-chip span:last-child')?.textContent?.trim() || 'SuperAdmin';
 
     close();
@@ -39,16 +38,14 @@
       'border-radius:12px', 'background:#fff',
       'box-shadow:0 24px 80px rgba(0,0,0,.45)'
     ].join(';');
-    frame.src = 'delivery-iframe.html?name=' + encodeURIComponent(name) +
+    frame.src = 'delivery-iframe.html?name=' + encodeURIComponent(workerLabel) +
       '&responsavel=' + encodeURIComponent(responsavel) +
-      '&v=20260814-isolated-v2';
+      '&v=20260814-isolated-v3';
 
     overlay.appendChild(frame);
     document.body.appendChild(overlay);
   }
 
-  // CAPTURE + stopImmediatePropagation: o handler do app.js nunca recebe
-  // o clique que abre a Entrega.
   document.addEventListener('click', function (event) {
     const launcher = event.target?.closest?.('[data-modal="delivery"]');
     if (!launcher) return;
@@ -59,8 +56,6 @@
 
   window.addEventListener('message', function (event) {
     if (event.origin !== location.origin) return;
-    if (event.data?.type === 'dpm-delivery-saved' || event.data?.type === 'dpm-delivery-cancel') {
-      close();
-    }
+    if (event.data?.type === 'dpm-delivery-saved' || event.data?.type === 'dpm-delivery-cancel') close();
   });
 })();
