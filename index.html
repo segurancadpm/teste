@@ -36,6 +36,7 @@
         .then(()=>import('./enterprise-runtime.js?v=20260813-v1'))
         .then(()=>import('./home-dashboard-v2.js?v=20260813-home') )
         .then(()=>import('./delivery-final.js?v=20260814-native-delivery'))
+        .then(()=>import('./delivery-event-guard.js?v=20260814-guard'))
         .then(()=>import('./catalog-delivery-runtime.js?v=20260814-passive'))
         .catch(showBootError);
     </script>
