@@ -103,7 +103,7 @@ async function deleteItem(i){
     if(current.stocks&&state.family==='EPI')Object.keys(current.stocks).forEach(w=>{if(current.stocks[w]&&typeof current.stocks[w]==='object')current.stocks[w]=Object.fromEntries(Object.entries(current.stocks[w]).filter(([k])=>norm(k)!==norm(name)));});
     await save();
     render();
-    showToast(`"${name}" foi apagado definitivamente.`);
+    alert(`"${name}" foi apagado definitivamente.`);
   }catch(err){
     console.error('[DPM] Erro ao apagar artigo:',err);
     alert(`Não foi possível apagar o artigo.\n\n${err?.message||err}`);
